@@ -71,7 +71,7 @@ static int Check() {
     return errors == 0 ? 0 : 1;
 }
 static void Help() {
-    Console.WriteLine("G3Windows v0.2 - factory G3 migration host helper");
+    Console.WriteLine("G3Windows v0.3 - factory G3 migration host helper");
     Console.WriteLine("  G3Windows.exe check       Check Docker, WSL, PowerShell and ports");
     Console.WriteLine("  G3Windows.exe guide       Print safe setup steps");
     Console.WriteLine("  G3Windows.exe network [--router-ip IP] [--nas-ip IP]  Detect/fill LAN addresses");
