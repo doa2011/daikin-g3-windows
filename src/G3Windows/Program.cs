@@ -136,16 +136,21 @@ static string AskMac() {
 }
 static int Responder() {
     var n=Nas();if(n==null)return 2;
+    using var cfg=ReadConfig();if(cfg==null)return 2;var c=cfg.RootElement;
+    string host=c.GetProperty("mqttHost").GetString()??"";
+    int mqttPort=c.GetProperty("mqttPort").GetInt32();
+    string user=c.GetProperty("mqttUser").GetString()??"";
+    string ca=c.GetProperty("mqttCa").GetString()??"";
+    string password="";
+    if(!string.IsNullOrWhiteSpace(user)){Console.Write("现有 MQTT 用户密码（仅本次使用）: ");password=Console.ReadLine()??"";}
     string mac=AskMac();if(!Regex.IsMatch(mac,"^[0-9A-F]{12}$"))return 2;
-    Console.Write("G3 HTTPS/MQTT 服务 IPv4: ");string ip=Console.ReadLine()?.Trim()??"";
-    if(!ValidIp(ip))return 2;
     Console.Write("应答时长（秒，60-3600，默认 600）: ");string v=Console.ReadLine()?.Trim()??"";
     int seconds=string.IsNullOrEmpty(v)?600:int.TryParse(v,out int parsed)?parsed:0;
     if(seconds<60||seconds>3600)return 2;
     const string root="/volume1/docker/g3-migration";
-    string script=$"set -e; export PATH=/usr/local/bin:$PATH; command -v python3 >/dev/null || {{ echo NAS_PYTHON3_REQUIRED; exit 7; }}; python3 {root}/lab/local_gateway_responder.py --device {mac} --gateway 020000000001 --host {ip} --empty-gateway --weather-code 1 --seconds {seconds}";
-    Console.WriteLine("开始单设备网关应答；请保持此窗口运行并检查五项应答日志。");
-    return SshRun(n.Value.nas,n.Value.user,n.Value.port,"sh -lc "+Q(script));
+    string cmd="/usr/local/bin/docker run --rm --network host -v "+root+"/upstream-g3-migrate:/scripts:ro -v "+root+"/lab:/lab:ro python:3.12-slim sh -lc "+Q("pip install -q paho-mqtt==2.1.0 && python /scripts/local_gateway_responder.py --device "+mac+" --gateway 020000000001 --host "+host+" --port "+mqttPort+" --cafile /lab/mqtt-ca.pem --seconds "+seconds+" --weather-code 1 --empty-gateway"+(string.IsNullOrWhiteSpace(user)?"":" --username "+user+" --password "+password));
+    Console.WriteLine("通过外部 MQTT "+host+":"+mqttPort+" 运行限时 G3 网关应答；NAS 不运行 Broker。");
+    return SshRun(n.Value.nas,n.Value.user,n.Value.port,"sh -lc "+Q(cmd));
 }
 static int OtaPrepare() {
     var n=Nas();if(n==null)return 2;
