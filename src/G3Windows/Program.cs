@@ -86,7 +86,7 @@ static int NasDeploy() {
     if(!Regex.IsMatch(sta,"^[0-9A-F]{12}$")){Console.Error.WriteLine("STA MAC 格式错误");return 2;}
     Console.Write("G3 专用服务 IP（必须已配置在 NAS 网卡上，不能与 NAS 管理 IP 相同）: "); string ip=Console.ReadLine()?.Trim()??"";
     if(!ValidIp(ip)||ip==nas){Console.Error.WriteLine("服务 IP 无效，必须是 NAS 已配置的独立 IPv4");return 2;}
-    var bundle=Path.Combine(BaseDir,"upstream-g3-migrate");
+    var bundle=Path.Combine(BaseDir(),"upstream-g3-migrate");
     foreach(var name in new[]{"init.py","local_ota_server.py","local_gateway_responder.py","trigger.py"})
         if(!File.Exists(Path.Combine(bundle,name))){Console.Error.WriteLine("缺少随程序发布的上游文件: "+name);return 3;}
     Console.WriteLine("部署前检查 NAS 服务 IP 和端口。此步骤只部署无 OTA 的初始兼容服务，不配置 DNS、不发送配网和升级命令。");
