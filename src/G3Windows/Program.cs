@@ -217,24 +217,19 @@ static int DnsGuide() {
 }
 
 static int Check() {
-    Console.WriteLine("Daikin G3 Windows host preflight (NO OTA)");
-    int errors = 0;
-    foreach (var (name, cmd, args) in new[] {
-        ("Docker Desktop", "docker", new[]{"info", "--format", "{{.ServerVersion}}"}),
-        ("WSL2", "wsl.exe", new[]{"--status"}),
-        ("PowerShell", "powershell.exe", new[]{"-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"}) }) {
-        Console.WriteLine("--- " + name);
-        if (Run(cmd, args) != 0) errors++;
+    Console.WriteLine("Daikin G3 Windows client preflight (Docker runs on the configured NAS)");
+    int errors=0;
+    foreach(var (name,cmd,args) in new[]{
+        ("OpenSSH client","ssh",new[]{"-V"}),
+        ("SCP client","scp",new[]{"-V"}),
+        ("PowerShell","powershell.exe",new[]{"-NoProfile","-Command","$PSVersionTable.PSVersion.ToString()"})}) {
+        Console.WriteLine("--- "+name);
+        if(Run(cmd,args)!=0)errors++;
     }
-    foreach (int port in new[] {443, 8883}) {
-        try {
-            using var listener = new TcpListener(IPAddress.Loopback, port);
-            listener.Start(); listener.Stop();
-            Console.WriteLine("TCP " + port + ": available on loopback (other interfaces not tested)");
-        } catch { Console.WriteLine("TCP " + port + ": occupied or inaccessible"); errors++; }
-    }
-    Console.WriteLine(errors == 0 ? "Preflight passed (not a migration readiness guarantee)." : "Preflight has " + errors + " warning(s).");
-    return errors == 0 ? 0 : 1;
+    string config=Path.Combine(AppContext.BaseDirectory,"g3-network.json");
+    Console.WriteLine(File.Exists(config)?"NAS/MQTT configuration: found":"NAS/MQTT configuration: not configured (run network)");
+    Console.WriteLine(errors==0?"Windows client preflight passed. Run nas-check to validate remote NAS Docker/Compose.":"Preflight has "+errors+" warning(s).");
+    return errors==0?0:1;
 }
 static void Help() {
     Console.WriteLine("G3Windows v0.4 - factory G3 migration host helper");
@@ -280,14 +275,14 @@ switch (args[0].ToLowerInvariant()) {
         try { using var proc = Process.Start(psi)!; proc.WaitForExit(); return proc.ExitCode; } catch (Exception ex) { Console.Error.WriteLine(ex.Message); return 1; }
     }
     case "guide":
-        Console.WriteLine("1. Obtain one matching verified upstream G3 migration bundle and firmware release.");
-        Console.WriteLine("2. Use a LAN Docker host (Synology NAS); Windows Docker Desktop/WSL2 is not required.");
-        Console.WriteLine("   Run G3Windows.exe network to detect the router and enter/confirm NAS IPv4.");
-        Console.WriteLine("3. On the NAS Docker host, run upstream init.py --address <G3-SERVICE-IP> --device <WIFI-STA-MAC> --output ./lab");
-        Console.WriteLine("4. Run docker compose -f ./lab/compose.json up -d; start gateway responder with --weather-code 1.");
-        Console.WriteLine("5. Set OpenWrt DNS overrides for this G3 only, then provision via Android BLE.");
-        Console.WriteLine("6. Confirm gateway acknowledgements before separately considering any OTA.");
-        Console.WriteLine("See https://github.com/phicomm-io/iotcloud-community-firmware/tree/main/tools/daikin_g3_migrate");
+        Console.WriteLine("1. Run network and enter NAS management IP, HTTPS service IP, existing MQTT host/port/TLS/CA and optional username.");
+        Console.WriteLine("2. Run nas-check to verify SSH and Docker Engine/Compose on Synology. Windows Docker Desktop and WSL2 are not required.");
+        Console.WriteLine("3. Confirm NAS TCP 443 and 8883 are free. NAS runs HTTPS plus an opaque TCP proxy; it does not run an MQTT Broker.");
+        Console.WriteLine("4. Run nas-deploy. HTTPS terminates on NAS; MQTT TLS is forwarded to the external broker you entered.");
+        Console.WriteLine("5. Configure only this G3 device's three factory DNS names to the NAS HTTPS IP, then provision through Android BLE.");
+        Console.WriteLine("6. Run responder and verify all five acknowledgements before ota-prepare and the separately confirmed ota-trigger.");
+        Console.WriteLine("7. Verify full artifact transfer, reboot and actual firmware version. Remove DNS overrides and run nas-stop.");
+        Console.WriteLine("External broker must accept the G3 factory device identity and topics; this tool does not change broker ACL/auth settings.");
         return 0;
     case "help": case "--help": case "-h": Help(); return 0;
     default: Console.Error.WriteLine("Unknown command"); Help(); return 2;
