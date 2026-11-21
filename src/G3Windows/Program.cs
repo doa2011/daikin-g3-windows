@@ -62,7 +62,7 @@ static int Logs(){var s=Server();if(s==null)return 2;return Ssh(s.Value.host,s.V
 static int Responder(){
     var s=Server();if(s==null)return 2;var mac=AskMac();if(!Regex.IsMatch(mac,"^[0-9A-F]{12}$"))return 2;
     Console.Write("应答运行秒数 [600]（60-3600）: ");var t=Console.ReadLine()?.Trim()??"";int seconds=t==""?600:int.TryParse(t,out var n)?n:0;if(seconds<60||seconds>3600)return 2;
-    string cmd="cd $HOME/g3-migration/lab && python3 local_gateway_responder.py --device "+mac+" --gateway 020000000001 --host "+s.Value.host+" --empty-gateway --weather-code 1 --seconds "+seconds;
+    string cmd="set -e; cd $HOME/g3-migration/lab; container=$(docker compose -f compose.json ps -q mqtt); if [ -z \"$container\" ]; then echo \"ERROR: MQTT compose service is not running; run docker compose -f compose.json ps/logs mqtt\"; exit 21; fi; echo \"MQTT container: $container\"; python3 local_gateway_responder.py --container \"$container\" --device "+mac+" --gateway 020000000001 --host "+s.Value.host+" --empty-gateway --weather-code 1 --seconds "+seconds;
     Console.WriteLine("启动限时网关应答。保持此窗口运行，等待五项应答。");return Ssh(s.Value.host,s.Value.user,s.Value.port,cmd);
 }
 static int OtaPrepare(){
