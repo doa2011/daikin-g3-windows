@@ -170,21 +170,27 @@ static int OtaPrepare() {
 }
 static int OtaTrigger() {
     var n=Nas();if(n==null)return 2;
+    using var cfg=ReadConfig();if(cfg==null)return 2;var c=cfg.RootElement;
+    string mqttHost=c.GetProperty("mqttHost").GetString()??"";
+    int mqttPort=c.GetProperty("mqttPort").GetInt32();
+    string mqttUser=c.GetProperty("mqttUser").GetString()??"";
+    string mqttCa=c.GetProperty("mqttCa").GetString()??"";
+    string password="";
+    if(!string.IsNullOrWhiteSpace(mqttUser)){Console.Write("现有 MQTT 用户密码（仅本次使用，不写入配置）: ");password=Console.ReadLine()??"";}
     string mac=AskMac();if(!Regex.IsMatch(mac,"^[0-9A-F]{12}$"))return 2;
-    Console.Write("G3 HTTPS/MQTT 服务 IPv4: ");string ip=Console.ReadLine()?.Trim()??"";
-    if(!ValidIp(ip))return 2;
     Console.Write("OTA 目标版本 [V99.00.00]: ");string version=Console.ReadLine()?.Trim()??"";
     if(version.Length==0)version="V99.00.00";
     if(!Regex.IsMatch(version,"^[A-Za-z0-9_.-]{1,31}$"))return 2;
     Console.Write("确认五项网关应答、HTTPS 服务正常且已完成 OTA Prepare。发送一次不可撤销的升级命令请输入 TRIGGER: ");
     if(Console.ReadLine()!="TRIGGER")return 1;
-    const string root="/volume1/docker/g3-migration";
     string token="iotcloud-"+Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
     var body=JsonSerializer.Serialize(new {client_token=token,data=new {upgrade_method=1,upgrade_info=new[]{new{device_type="SENSOR3_ESP32",to_version=version}}}});
     string topic="SENSOR/"+mac+"/mqtt/service/ota";
-    string cmd="/usr/local/bin/docker exec iotcloud-g3-migration mosquitto_pub -h "+Q(ip)+" -p 8883 --cafile /lab/ca.pem -q 1 -t "+Q(topic)+" -m "+Q(body);
-    Console.WriteLine("仅发送一次 ESP32 OTA 命令；请检查 HTTPS artifact-start / artifact 日志并确认设备重启。");
-    return SshRun(n.Value.nas,n.Value.user,n.Value.port,cmd);
+    string args=" --rm --network host -v /volume1/docker/g3-migration/lab:/lab:ro eclipse-mosquitto:2.0.22 mosquitto_pub -h "+Q(mqttHost)+" -p "+mqttPort+" --cafile /lab/mqtt-ca.pem -q 1 -t "+Q(topic)+" -m "+Q(body);
+    if(!string.IsNullOrWhiteSpace(mqttUser))args+=" -u "+Q(mqttUser)+" -P "+Q(password);
+    string cmd="/usr/local/bin/docker run"+args;
+    Console.WriteLine("通过外部 MQTT "+mqttHost+":"+mqttPort+" 单次发布 ESP32 OTA 命令；NAS 不运行 MQTT Broker。");
+    return SshRun(n.Value.nas,n.Value.user,n.Value.port,"sh -lc "+Q(cmd));
 }
 static int NasLogs() {
     var n=Nas();if(n==null)return 2;
@@ -234,7 +240,7 @@ static void Help() {
     Console.WriteLine("  G3Windows.exe nas-deploy  Deploy HTTPS-only G3 service to Synology; use external MQTT");
     Console.WriteLine("  G3Windows.exe nas-status  Check deployed G3 migration services");
     Console.WriteLine("  MQTT endpoint is user-configured (host/port/TLS/CA); no MQTT Broker is installed on NAS.");
-    Console.WriteLine("  G3Windows.exe nas-logs    Inspect G3 HTTPS/MQTT logs");
+    Console.WriteLine("  G3Windows.exe nas-logs    Inspect G3 HTTPS logs (external MQTT is not hosted here)");
     Console.WriteLine("  G3Windows.exe responder   Run timed G3 gateway acknowledgements");
     Console.WriteLine("  G3Windows.exe ota-prepare Verify raw firmware SHA256 and enable OTA offer");
     Console.WriteLine("  G3Windows.exe ota-trigger Guided OTA safety confirmation (not automated)");
