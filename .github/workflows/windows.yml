@@ -38,7 +38,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: g3-windows-final-win-x64
-          path: g3-windows-v0.4-win-x64.zip
+          path: g3-windows-final-win-x64.zip
           if-no-files-found: error
 
       - name: Publish stable Windows download on GitHub Releases
@@ -48,7 +48,7 @@ jobs:
           name: Latest Windows build
           body: |
             Automatically updated Windows x64 self-contained build from the latest successful main-branch workflow.
-            Download g3-windows-v0.4-win-x64.zip below. Extract and run G3Windows.exe.
-            This helper currently configures network parameters and checks remote NAS Docker over SSH; it does not deploy gateway services or perform OTA.
+            Download g3-windows-final-win-x64.zip below. Extract and run G3Windows.exe.
+            Includes pinned upstream migration scripts and NAS remote deployment of the initial NO-OTA stack. DNS, BLE provisioning and OTA remain separately gated.
           files: g3-windows-v0.4-win-x64.zip
           make_latest: true
