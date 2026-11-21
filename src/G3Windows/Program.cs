@@ -97,7 +97,8 @@ static int NasDeploy() {
     bool mqttTls=c.GetProperty("mqttTls").GetBoolean();
     string mqttCa=c.GetProperty("mqttCa").GetString()??"";
     Console.WriteLine("HTTPS 服务部署在 NAS 地址 "+ip+":443；MQTT 使用外部服务器 "+mqttHost+":"+mqttPort+"，NAS 不部署 MQTT Broker。");
-    if(mqttTls && !string.IsNullOrWhiteSpace(mqttCa) && !File.Exists(mqttCa)){Console.Error.WriteLine("MQTT CA 文件不存在");return 2;}
+    if(!mqttTls){Console.Error.WriteLine("原厂 G3 MQTT 链路要求 TLS；本迁移模式不支持关闭 TLS。");return 2;}
+    if(string.IsNullOrWhiteSpace(mqttCa) || !File.Exists(mqttCa)){Console.Error.WriteLine("必须提供现有 MQTT Broker 的 CA PEM 文件，供 G3 HTTPS 证书接口下发。");return 2;}
     var bundle=Path.Combine(BaseDir(),"upstream-g3-migrate");
     foreach(var name in new[]{"init.py","enable.py","local_ota_server.py","local_gateway_responder.py","trigger.py"})
         if(!File.Exists(Path.Combine(bundle,name))){Console.Error.WriteLine("缺少随程序发布的上游文件: "+name);return 3;}
@@ -108,7 +109,8 @@ static int NasDeploy() {
     string remoteCheck=$"set -e; ip -o -4 addr show | grep -F ' {ip}/' >/dev/null || {{ echo SERVICE_IP_NOT_ASSIGNED; exit 20; }}; for p in 443 8883; do if ss -lnt 2>/dev/null | grep -E '[:.]$p[[:space:]]' | grep -F '{ip}:' >/dev/null; then echo PORT_OCCUPIED_$p; exit 21; fi; done; mkdir -p {root}/upstream-g3-migrate";
     if(SshRun(nas,user,port,"sh -lc "+Q(remoteCheck))!=0){Console.Error.WriteLine("NAS 服务 IP 未配置或端口被占用；未部署。请先为 NAS 配置独立服务 IP。");return 4;}
     if(ScpRun(nas,user,port,bundle,root)!=0)return 5;
-    string prep=$"set -e; D=/usr/local/bin/docker; cd {root}; $D run --rm -v {root}:/workspace -w /workspace/upstream-g3-migrate python:3.12-slim sh -lc 'apt-get update -qq && apt-get install -y -qq openssl >/dev/null && python init.py --address {ip} --device {sta} --output /workspace/lab'; sed -i 's@/workspace/lab@{root}/lab@g' {root}/lab/compose.json; $D compose -f {root}/lab/compose.json up -d";
+    if(ScpRun(nas,user,port,mqttCa,root+"/mqtt-ca.pem")!=0)return 5;
+    string prep=$"set -e; D=/usr/local/bin/docker; cd {root}; $D run --rm -v {root}:/workspace -w /workspace/upstream-g3-migrate python:3.12-slim sh -lc 'apt-get update -qq && apt-get install -y -qq openssl >/dev/null && python init.py --address {ip} --device {sta} --output /workspace/lab'; cp {root}/mqtt-ca.pem {root}/lab/mqtt-ca.pem; python3 -c 'import json; p=\"{root}/lab/compose.json\"; d=json.load(open(p)); d[\"services\"].pop(\"mqtt\",None); c=d[\"services\"][\"https\"][\"command\"]; i=c.index(\"--broker-ca\"); c[i+1]=\"/lab/mqtt-ca.pem\"; open(p,\"w\").write(json.dumps(d,indent=2))'; sed -i 's@/workspace/lab@{root}/lab@g' {root}/lab/compose.json; $D compose -f {root}/lab/compose.json up -d"
 
     if(SshRun(nas,user,port,"sh -lc "+Q(prep))!=0){Console.Error.WriteLine("上游配置生成或 Compose 启动失败。保留目录和日志供诊断；未修改 OpenWrt。");return 6;}
     Console.WriteLine("初始 HTTPS 服务已部署（NO-OTA）。未在 NAS 部署 MQTT Broker；设备 MQTT 由你填写的外部服务器提供。仍需验证外部 Broker 的 G3 TLS/身份认证兼容性。");
@@ -118,7 +120,7 @@ static int NasStatus() {
     using var cfg=ReadConfig();if(cfg==null)return 2;var c=cfg.RootElement;
     string nas=c.GetProperty("nasIp").GetString()!,user=c.GetProperty("sshUser").GetString()!;int port=c.GetProperty("sshPort").GetInt32();
     string root="/volume1/docker/g3-migration";
-    string cmd=$"set -e; D=/usr/local/bin/docker; $D compose -f {root}/lab/compose.json ps; $D ps --filter name=iotcloud-g3-migration --format 'table {{.Names}}\\t{{.Status}}'; echo '--- TCP LISTEN ---'; ss -lnt | grep -E '(:443|:8883)' || true";
+    string cmd=$"set -e; D=/usr/local/bin/docker; $D compose -f {root}/lab/compose.json ps; $D ps --filter name=iotcloud-g3-migration --format 'table {{.Names}}\\t{{.Status}}'; echo '--- TCP LISTEN ---'; ss -lnt | grep -E '(:443)' || true";
     return SshRun(nas,user,port,"sh -lc "+Q(cmd));
 }
 
@@ -187,7 +189,7 @@ static int OtaTrigger() {
 static int NasLogs() {
     var n=Nas();if(n==null)return 2;
     const string root="/volume1/docker/g3-migration";
-    return SshRun(n.Value.nas,n.Value.user,n.Value.port,"/usr/local/bin/docker compose -f "+root+"/lab/compose.json logs --tail=100 https mqtt");
+    return SshRun(n.Value.nas,n.Value.user,n.Value.port,"/usr/local/bin/docker compose -f "+root+"/lab/compose.json logs --tail=100 https");
 }
 static int NasStop() {
     var n=Nas();if(n==null)return 2;
