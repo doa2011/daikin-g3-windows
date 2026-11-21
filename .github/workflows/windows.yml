@@ -1,0 +1,27 @@
+name: Windows PowerShell validation and package
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  validate:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('prepare.ps1', 'start.ps1', 'stop.ps1')) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $path), [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) { $errors | Format-List | Out-String | Write-Error; exit 1 }
+            Write-Host "Parsed $path"
+          }
+      - name: Package scripts
+        shell: pwsh
+        run: Compress-Archive -Path prepare.ps1,start.ps1,stop.ps1,README.md -DestinationPath g3-windows-migration-v0.1.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: g3-windows-migration
+          path: g3-windows-migration-v0.1.zip
+          if-no-files-found: error
