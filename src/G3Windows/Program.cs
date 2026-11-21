@@ -210,9 +210,9 @@ static int NasStop() {
     return SshRun(n.Value.nas,n.Value.user,n.Value.port,"/usr/local/bin/docker compose -f "+root+"/lab/compose.json down");
 }
 static int DnsGuide() {
-    Console.WriteLine("必须仅针对 G3 配置以下三个 DNS 域名到独立服务 IP，不能使用全局 dnsmasq address=/domain/IP 覆盖其他设备：");
+    Console.WriteLine("仅针对这台 G3，将以下三个原厂域名解析到 NAS 的 G3 HTTPS 服务 IP（可与 NAS 管理 IP 相同）；NAS 的 8883 端口通过 TCP 代理转发到你填写的外部 MQTT Broker：");
     foreach(var d in new[]{"newlifemulti.daikin-china.com.cn","newlifemulti-cdh.daikin-china.com.cn","newlifemulti-cdh-core.daikin-china.com.cn"})Console.WriteLine("  "+d);
-    Console.WriteLine("请在 OpenWrt 为 G3 配置专用 DNS 解析器及按设备 MAC 区分的 DHCP DNS，并验证 G3 实际解析结果。当前版本不自动修改 DNS，以免影响全网。");
+    Console.WriteLine("请在 OpenWrt 按设备 MAC 配置 DNS/DHCP，不能使用全局规则影响其他设备。验证三个域名均解析到 NAS HTTPS IP；外部 Broker 地址由 NAS TCP 代理转发，不需要让 G3 直接解析外部 Broker。当前版本不自动修改 DNS，以免影响全网。");
     return 0;
 }
 
