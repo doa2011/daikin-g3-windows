@@ -38,9 +38,12 @@ static int Network(string[] options) {
     Console.WriteLine("Detected Windows LAN IPv4: " + (local?.ToString() ?? "not found"));
     Console.WriteLine("Detected default gateway: " + (gateway?.ToString() ?? "not found"));
     if (string.IsNullOrWhiteSpace(router)) { Console.Write("OpenWrt router LAN IPv4: "); router = Console.ReadLine()?.Trim() ?? ""; }
-    if (string.IsNullOrWhiteSpace(nas)) { Console.Write("Synology NAS LAN IPv4 (e.g. 192.168.99.130): "); nas = Console.ReadLine()?.Trim() ?? ""; }
+    if (string.IsNullOrWhiteSpace(nas)) { Console.Write("请手动输入群晖 NAS 管理 IPv4（例如 192.168.99.130）: "); nas = Console.ReadLine()?.Trim() ?? ""; }
     if (!ValidIp(router) || !ValidIp(nas)) { Console.Error.WriteLine("Invalid IPv4. Use dotted decimal addresses."); return 2; }
-    var data = new { routerIp = router, nasIp = nas, windowsLanIp = local?.ToString(), detectedGateway = gateway?.ToString(), note = "Verify NAS address/reservation and dedicated G3 service IP before deployment." };
+    Console.Write("SSH 用户名 [root]: "); string sshUser = Console.ReadLine()?.Trim() ?? ""; if (string.IsNullOrWhiteSpace(sshUser)) sshUser = "root";
+    Console.Write("SSH 端口 [22]: "); string portText = Console.ReadLine()?.Trim() ?? ""; int sshPort = string.IsNullOrWhiteSpace(portText) ? 22 : int.TryParse(portText, out var parsedPort) ? parsedPort : 0; if (sshPort < 1 || sshPort > 65535) { Console.Error.WriteLine("SSH 端口无效"); return 2; }
+    Console.Write("G3 专用服务 IP（未配置可留空）: "); string serviceIp = Console.ReadLine()?.Trim() ?? ""; if (!string.IsNullOrWhiteSpace(serviceIp) && !ValidIp(serviceIp)) { Console.Error.WriteLine("服务 IP 无效"); return 2; }
+    var data = new { routerIp = router, nasIp = nas, sshUser, sshPort, serviceIp, windowsLanIp = local?.ToString(), detectedGateway = gateway?.ToString(), note = "NAS management IP is manual. G3 service IP must be separately assigned; do not reuse an occupied NAS address." };
     var path = Path.Combine(AppContext.BaseDirectory, "g3-network.json");
     File.WriteAllText(path, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
     Console.WriteLine("Saved: " + path);
@@ -74,7 +77,8 @@ static void Help() {
     Console.WriteLine("G3Windows v0.3 - factory G3 migration host helper");
     Console.WriteLine("  G3Windows.exe check       Check Docker, WSL, PowerShell and ports");
     Console.WriteLine("  G3Windows.exe guide       Print safe setup steps");
-    Console.WriteLine("  G3Windows.exe network [--router-ip IP] [--nas-ip IP]  Detect/fill LAN addresses");
+    Console.WriteLine("  G3Windows.exe network [--router-ip IP] [--nas-ip IP]  Detect router; manually enter NAS/SSH");
+    Console.WriteLine("  G3Windows.exe nas-check  Test SSH and remote Docker/Compose on Synology");
     Console.WriteLine("  G3Windows.exe help        Show this help");
     Console.WriteLine("This tool DOES NOT trigger firmware updates.");
 }
@@ -82,6 +86,15 @@ if (args.Length == 0) { Help(); return 0; }
 switch (args[0].ToLowerInvariant()) {
     case "check": return Check();
     case "network": return Network(args.Skip(1).ToArray());
+    case "nas-check": {
+        var configFile = Path.Combine(AppContext.BaseDirectory, "g3-network.json");
+        if (!File.Exists(configFile)) { Console.Error.WriteLine("请先运行 G3Windows.exe network"); return 2; }
+        using var cfg = JsonDocument.Parse(File.ReadAllText(configFile)); var root = cfg.RootElement;
+        string nas = root.GetProperty("nasIp").GetString()!; string user = root.GetProperty("sshUser").GetString()!; int port = root.GetProperty("sshPort").GetInt32();
+        Console.WriteLine("SSH 连接 " + user + "@" + nas + ":" + port + "（首次连接需确认主机指纹）");
+        var psi = new ProcessStartInfo("ssh") { UseShellExecute = false }; psi.ArgumentList.Add("-p"); psi.ArgumentList.Add(port.ToString()); psi.ArgumentList.Add("-o"); psi.ArgumentList.Add("ConnectTimeout=8"); psi.ArgumentList.Add(user + "@" + nas); psi.ArgumentList.Add("docker version --format '{{.Server.Version}}' && docker compose version && docker ps");
+        try { using var proc = Process.Start(psi)!; proc.WaitForExit(); return proc.ExitCode; } catch (Exception ex) { Console.Error.WriteLine(ex.Message); return 1; }
+    }
     case "guide":
         Console.WriteLine("1. Obtain one matching verified upstream G3 migration bundle and firmware release.");
         Console.WriteLine("2. Use a LAN Docker host (Synology NAS); Windows Docker Desktop/WSL2 is not required.");
