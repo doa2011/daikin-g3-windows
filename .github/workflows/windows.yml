@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path package -Force | Out-Null
-          Copy-Item dist/G3Windows.exe,prepare.ps1,start.ps1,stop.ps1,README.md package/
+          Copy-Item dist/G3Windows.exe,README.md package/
           Copy-Item upstream-g3-migrate package/upstream-g3-migrate -Recurse
           Compress-Archive -Path package/* -DestinationPath g3-windows-final-win-x64.zip
       - uses: actions/upload-artifact@v4
