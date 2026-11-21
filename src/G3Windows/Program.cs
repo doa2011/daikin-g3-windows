@@ -22,7 +22,6 @@ static int Run(string exe,params string[] args){try{var p=new Process{StartInfo=
 static int Ssh(string host,string user,int port,string command){var psi=new ProcessStartInfo("ssh"){UseShellExecute=false};psi.ArgumentList.Add("-p");psi.ArgumentList.Add(port.ToString());psi.ArgumentList.Add("-o");psi.ArgumentList.Add("ConnectTimeout=12");psi.ArgumentList.Add("-o");psi.ArgumentList.Add("ServerAliveInterval=15");psi.ArgumentList.Add(user+"@"+host);psi.ArgumentList.Add("sh -lc "+Q(command));try{using var p=Process.Start(psi)!;p.WaitForExit();return p.ExitCode;}catch(Exception e){Console.Error.WriteLine("SSH 失败："+e.Message);return 1;}}
 static int Scp(string host,string user,int port,string source,string target){var psi=new ProcessStartInfo("scp"){UseShellExecute=false};psi.ArgumentList.Add("-P");psi.ArgumentList.Add(port.ToString());psi.ArgumentList.Add("-r");psi.ArgumentList.Add(source);psi.ArgumentList.Add(user+"@"+host+":"+target);try{using var p=Process.Start(psi)!;p.WaitForExit();return p.ExitCode;}catch(Exception e){Console.Error.WriteLine("SCP 失败："+e.Message);return 1;}}
 static (string host,string user,int port)? Server(){using var d=ReadConfig();if(d==null)return null;var x=d.RootElement;return(x.GetProperty("linuxIp").GetString()!,x.GetProperty("sshUser").GetString()!,x.GetProperty("sshPort").GetInt32());}
-static string Root() => "$HOME/g3-migration";
 static int Network(string[] args){
     var gw=DetectGateway();var lan=DetectLan(gw);
     Console.WriteLine("G3 Linux service host configuration (no DNS/device changes)");
@@ -35,7 +34,7 @@ static int Network(string[] args){
     if(!ValidIp(router)||!ValidIp(ip)||string.IsNullOrWhiteSpace(user)||port<1||port>65535){Console.Error.WriteLine("IP/SSH 参数无效");return 2;}
     var obj=new{routerIp=router,linuxIp=ip,sshUser=user,sshPort=port,linuxRoot="~/g3-migration",note="Temporary upstream-compatible HTTPS + anonymous MQTT migration services; no external MQTT required."};
     File.WriteAllText(ConfigPath(),JsonSerializer.Serialize(obj,new JsonSerializerOptions{WriteIndented=true}));
-    Console.WriteLine("Saved "+ConfigPath);Console.WriteLine("Linux service host: "+ip);Console.WriteLine("MQTT Broker will run on Linux TCP 8883; HTTPS on TCP 443.");
+    Console.WriteLine("Saved "+ConfigPath());Console.WriteLine("Linux service host: "+ip);Console.WriteLine("MQTT Broker will run on Linux TCP 8883; HTTPS on TCP 443.");
     Console.WriteLine("No DNS, firewall, Docker or G3 settings changed.");return 0;
 }
 static string AskMac(){Console.Write("G3 实际 Wi-Fi STA MAC（12位十六进制，不是 BLE MAC）: ");return(Console.ReadLine()??"").Replace(":","").Replace("-","").ToUpperInvariant();}
@@ -92,6 +91,7 @@ static void Help(){Console.WriteLine("G3Windows v0.5 — Windows manager / Linux
 if(args.Length==0){Help();return 0;}
 switch(args[0].ToLowerInvariant()){
  case "help":Help();return 0;
+ case "guide":Console.WriteLine("1. Linux: install Docker Engine + Compose, Python 3 and OpenSSL; enable SSH and grant the SSH user Docker access.\n2. Keep Linux on the same LAN as G3; reserve its IPv4 and allow TCP 443/8883 from the G3.\n3. Windows: run network, linux-check, linux-deploy.\n4. OpenWrt: redirect only the three factory G3 domains for this device to the Linux host IP.\n5. Android: short-press the G3 network button, scan BLE, send 2.4GHz Wi-Fi plus Linux host IP and gateway MAC 020000000001.\n6. Windows: run responder and confirm five gateway acknowledgements; then ota-prepare and ota-trigger.\n7. Verify HTTPS artifact transfer, reboot and firmware version; remove DNS overrides and run linux-stop.");return 0;
  case "check":Console.WriteLine("Windows OpenSSH/SCP");return Run("ssh","-V");
  case "network":return Network(args.Skip(1).ToArray());
  case "linux-check":return LinuxCheck();
