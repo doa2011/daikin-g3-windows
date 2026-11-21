@@ -1,15 +1,17 @@
-# Daikin G3 Windows migration helper (V0.1)
+# Daikin G3 Windows migration helper (v0.2)
 
-Windows 10 + Docker Desktop + OpenWrt companion tool for factory G3 migration. This package does **not** flash firmware or enable OTA.
+This project now builds a **real Windows x64 EXE** (self-contained .NET 8 CLI) on GitHub Actions.
 
-**Important:** Upstream `tools/daikin_g3_migrate/init.py` uses `os.getuid()`/`os.getgid()` and POSIX paths, so it cannot run under native Windows Python. `prepare.ps1` currently performs prerequisite validation and deliberately stops before calling the incompatible script. Linux/WSL2 integration and end-to-end testing are next milestones. Do not treat a passing CI syntax check as a working migration service.
-
-Requirements: Windows 10 with WSL2 and Docker Desktop, Python 3, a matching verified upstream migration bundle, G3's Wi-Fi STA MAC (not BLE MAC), and OpenWrt DNS overrides. Only use compatible matching firmware and SHA256SUMS.
+Download the `g3-windows-exe-win-x64` artifact from the latest successful Actions run, unzip and run:
 
 ```powershell
-.\prepare.ps1 -WindowsIP 192.168.1.10 -DeviceWifiMac AABBCCDDEEFF -BundlePath C:\g3-migration
+.\G3Windows.exe help
+.\G3Windows.exe check
+.\G3Windows.exe guide
 ```
 
-The command currently stops with an explicit WSL/Linux compatibility warning. `start.ps1` and `stop.ps1` manage a previously generated `lab/compose.json` if available.
+**Current scope:** executable host prerequisite diagnostics and migration instructions; no GUI, no gateway implementation, no OTA commands. The PowerShell scripts are included but `prepare.ps1` deliberately stops before the upstream Linux-only `init.py` invocation. Thus a successful EXE build does not mean the complete wireless migration is ready. WSL2/Docker host orchestration and a GUI are next.
 
-Upstream GPL-3.0 project: https://github.com/phicomm-io/iotcloud-community-firmware/tree/main/tools/daikin_g3_migrate
+For G3 model BRY88BBA15G / SENSOR3_ESP32 only. Upstream migration procedure requires per-device OpenWrt DNS redirects, MQTT/HTTPS, a running gateway responder, the real Wi-Fi STA MAC and matching firmware. **Do not flash before gateway association and OTA validation.**
+
+Upstream GPL-3.0 documentation: https://github.com/phicomm-io/iotcloud-community-firmware/tree/main/tools/daikin_g3_migrate

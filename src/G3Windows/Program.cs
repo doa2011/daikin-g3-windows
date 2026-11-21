@@ -1,0 +1,53 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
+using System.Text.RegularExpressions;
+
+static int Run(string file, params string[] args) {
+    using var p = new Process { StartInfo = new ProcessStartInfo(file) { UseShellExecute = false } };
+    foreach (var arg in args) p.StartInfo.ArgumentList.Add(arg);
+    try { p.Start(); p.WaitForExit(); return p.ExitCode; }
+    catch (Exception ex) { Console.Error.WriteLine(ex.Message); return 1; }
+}
+static int Check() {
+    Console.WriteLine("Daikin G3 Windows host preflight (NO OTA)");
+    int errors = 0;
+    foreach (var (name, cmd, args) in new[] {
+        ("Docker Desktop", "docker", new[]{"info", "--format", "{{.ServerVersion}}"}),
+        ("WSL2", "wsl.exe", new[]{"--status"}),
+        ("PowerShell", "powershell.exe", new[]{"-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"}) }) {
+        Console.WriteLine("--- " + name);
+        if (Run(cmd, args) != 0) errors++;
+    }
+    foreach (int port in new[] {443, 8883}) {
+        try {
+            using var listener = new TcpListener(IPAddress.Loopback, port);
+            listener.Start(); listener.Stop();
+            Console.WriteLine("TCP " + port + ": available on loopback (other interfaces not tested)");
+        } catch { Console.WriteLine("TCP " + port + ": occupied or inaccessible"); errors++; }
+    }
+    Console.WriteLine(errors == 0 ? "Preflight passed (not a migration readiness guarantee)." : "Preflight has " + errors + " warning(s).");
+    return errors == 0 ? 0 : 1;
+}
+static void Help() {
+    Console.WriteLine("G3Windows v0.2 - factory G3 migration host helper");
+    Console.WriteLine("  G3Windows.exe check       Check Docker, WSL, PowerShell and ports");
+    Console.WriteLine("  G3Windows.exe guide       Print safe setup steps");
+    Console.WriteLine("  G3Windows.exe help        Show this help");
+    Console.WriteLine("This tool DOES NOT trigger firmware updates.");
+}
+if (args.Length == 0) { Help(); return 0; }
+switch (args[0].ToLowerInvariant()) {
+    case "check": return Check();
+    case "guide":
+        Console.WriteLine("1. Obtain one matching verified upstream G3 migration bundle and firmware release.");
+        Console.WriteLine("2. Configure Windows 10 WSL2 + Docker Desktop Linux containers.");
+        Console.WriteLine("3. In WSL Linux, run upstream init.py --address <LAN-IP> --device <WIFI-STA-MAC> --output ./lab");
+        Console.WriteLine("4. Run docker compose -f ./lab/compose.json up -d; start gateway responder with --weather-code 1.");
+        Console.WriteLine("5. Set OpenWrt DNS overrides for this G3 only, then provision via Android BLE.");
+        Console.WriteLine("6. Confirm gateway acknowledgements before separately considering any OTA.");
+        Console.WriteLine("See https://github.com/phicomm-io/iotcloud-community-firmware/tree/main/tools/daikin_g3_migrate");
+        return 0;
+    case "help": case "--help": case "-h": Help(); return 0;
+    default: Console.Error.WriteLine("Unknown command"); Help(); return 2;
+}
