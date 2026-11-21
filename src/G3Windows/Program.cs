@@ -148,7 +148,7 @@ static int Responder() {
     int seconds=string.IsNullOrEmpty(v)?600:int.TryParse(v,out int parsed)?parsed:0;
     if(seconds<60||seconds>3600)return 2;
     const string root="/volume1/docker/g3-migration";
-    string cmd="/usr/local/bin/docker run --rm --network host -v "+root+"/upstream-g3-migrate:/scripts:ro -v "+root+"/lab:/lab:ro python:3.12-slim sh -lc "+Q("pip install -q paho-mqtt==2.1.0 && python /scripts/local_gateway_responder.py --device "+mac+" --gateway 020000000001 --host "+host+" --port "+mqttPort+" --cafile /lab/mqtt-ca.pem --seconds "+seconds+" --weather-code 1 --empty-gateway"+(string.IsNullOrWhiteSpace(user)?"":" --username "+user+" --password "+password));
+    string cmd="/usr/local/bin/docker run --rm --network host -v "+root+"/upstream-g3-migrate:/scripts:ro -v "+root+"/lab:/lab:ro python:3.12-slim sh -lc "+Q("pip install -q paho-mqtt==2.1.0 && python /scripts/local_gateway_responder.py --device "+mac+" --gateway 020000000001 --host "+host+" --port "+mqttPort+" --cafile /lab/mqtt-ca.pem --seconds "+seconds+" --weather-code 1 --empty-gateway"+(string.IsNullOrWhiteSpace(user)?"":" --username "+Q(user)+" --password "+Q(password)));
     Console.WriteLine("通过外部 MQTT "+host+":"+mqttPort+" 运行限时 G3 网关应答；NAS 不运行 Broker。");
     return SshRun(n.Value.nas,n.Value.user,n.Value.port,"sh -lc "+Q(cmd));
 }
