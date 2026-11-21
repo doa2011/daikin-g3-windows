@@ -92,7 +92,7 @@ switch (args[0].ToLowerInvariant()) {
         using var cfg = JsonDocument.Parse(File.ReadAllText(configFile)); var root = cfg.RootElement;
         string nas = root.GetProperty("nasIp").GetString()!; string user = root.GetProperty("sshUser").GetString()!; int port = root.GetProperty("sshPort").GetInt32();
         Console.WriteLine("SSH 连接 " + user + "@" + nas + ":" + port + "（首次连接需确认主机指纹）");
-        psi.ArgumentList.Add("sh -lc 'export PATH=\\$PATH:/usr/local/bin:/var/packages/ContainerManager/target/usr/bin:/var/packages/Docker/target/usr/bin; echo DOCKER_BIN=\\$(command -v docker); docker version --format \\\"{{.Server.Version}}\\\" && docker compose version && docker ps'");
+        psi.ArgumentList.Add("sh -lc 'export PATH=$PATH:/usr/local/bin:/var/packages/ContainerManager/target/usr/bin:/var/packages/Docker/target/usr/bin; echo DOCKER_BIN=$(command -v docker); docker version --format \\\"{{.Server.Version}}\\\" && docker compose version && docker ps'");
         try { using var proc = Process.Start(psi)!; proc.WaitForExit(); return proc.ExitCode; } catch (Exception ex) { Console.Error.WriteLine(ex.Message); return 1; }
     }
     case "guide":
