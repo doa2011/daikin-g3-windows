@@ -92,7 +92,11 @@ switch (args[0].ToLowerInvariant()) {
         using var cfg = JsonDocument.Parse(File.ReadAllText(configFile)); var root = cfg.RootElement;
         string nas = root.GetProperty("nasIp").GetString()!; string user = root.GetProperty("sshUser").GetString()!; int port = root.GetProperty("sshPort").GetInt32();
         Console.WriteLine("SSH 连接 " + user + "@" + nas + ":" + port + "（首次连接需确认主机指纹）");
-        psi.ArgumentList.Add("sh -lc 'export PATH=$PATH:/usr/local/bin:/var/packages/ContainerManager/target/usr/bin:/var/packages/Docker/target/usr/bin; echo DOCKER_BIN=$(command -v docker); docker version --format \\\"{{.Server.Version}}\\\" && docker compose version && docker ps'");
+        var psi = new ProcessStartInfo("ssh") { UseShellExecute = false };
+        psi.ArgumentList.Add("-p"); psi.ArgumentList.Add(port.ToString());
+        psi.ArgumentList.Add("-o"); psi.ArgumentList.Add("ConnectTimeout=8");
+        psi.ArgumentList.Add(user + "@" + nas);
+        psi.ArgumentList.Add("sh -lc 'D=/usr/local/bin/docker; [ -x \"$D\" ] || D=/var/packages/ContainerManager/target/usr/bin/docker; [ -x \"$D\" ] || D=/var/packages/Docker/target/usr/bin/docker; [ -x \"$D\" ] || { echo DOCKER_NOT_FOUND; exit 127; }; echo DOCKER_BIN=$D; \"$D\" version --format \"{{.Server.Version}}\" && \"$D\" compose version && \"$D\" ps'");
         try { using var proc = Process.Start(psi)!; proc.WaitForExit(); return proc.ExitCode; } catch (Exception ex) { Console.Error.WriteLine(ex.Message); return 1; }
     }
     case "guide":
