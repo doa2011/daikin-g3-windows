@@ -16,13 +16,13 @@ static IPAddress? DetectLan(IPAddress? gw) => NetworkInterface.GetAllNetworkInte
     .Select(x => x.Address).FirstOrDefault();
 static bool ValidIp(string s) => IPAddress.TryParse(s,out var a) && a.AddressFamily==System.Net.Sockets.AddressFamily.InterNetwork;
 static string Q(string s) => "'"+s.Replace("'","'\\''")+"'";
-static string ConfigPath => Path.Combine(AppContext.BaseDirectory,"g3-linux.json");
-static JsonDocument? ReadConfig(){if(!File.Exists(ConfigPath)){Console.Error.WriteLine("请先运行 network 配置 Linux 服务端。");return null;}return JsonDocument.Parse(File.ReadAllText(ConfigPath));}
+static string ConfigPath() => Path.Combine(AppContext.BaseDirectory,"g3-linux.json");
+static JsonDocument? ReadConfig(){if(!File.Exists(ConfigPath())){Console.Error.WriteLine("请先运行 network 配置 Linux 服务端。");return null;}return JsonDocument.Parse(File.ReadAllText(ConfigPath));}
 static int Run(string exe,params string[] args){try{var p=new Process{StartInfo=new ProcessStartInfo(exe){UseShellExecute=false}};foreach(var a in args)p.StartInfo.ArgumentList.Add(a);p.Start();p.WaitForExit();return p.ExitCode;}catch(Exception e){Console.Error.WriteLine(e.Message);return 1;}}
 static int Ssh(string host,string user,int port,string command){var psi=new ProcessStartInfo("ssh"){UseShellExecute=false};psi.ArgumentList.Add("-p");psi.ArgumentList.Add(port.ToString());psi.ArgumentList.Add("-o");psi.ArgumentList.Add("ConnectTimeout=12");psi.ArgumentList.Add("-o");psi.ArgumentList.Add("ServerAliveInterval=15");psi.ArgumentList.Add(user+"@"+host);psi.ArgumentList.Add("sh -lc "+Q(command));try{using var p=Process.Start(psi)!;p.WaitForExit();return p.ExitCode;}catch(Exception e){Console.Error.WriteLine("SSH 失败："+e.Message);return 1;}}
 static int Scp(string host,string user,int port,string source,string target){var psi=new ProcessStartInfo("scp"){UseShellExecute=false};psi.ArgumentList.Add("-P");psi.ArgumentList.Add(port.ToString());psi.ArgumentList.Add("-r");psi.ArgumentList.Add(source);psi.ArgumentList.Add(user+"@"+host+":"+target);try{using var p=Process.Start(psi)!;p.WaitForExit();return p.ExitCode;}catch(Exception e){Console.Error.WriteLine("SCP 失败："+e.Message);return 1;}}
 static (string host,string user,int port)? Server(){using var d=ReadConfig();if(d==null)return null;var x=d.RootElement;return(x.GetProperty("linuxIp").GetString()!,x.GetProperty("sshUser").GetString()!,x.GetProperty("sshPort").GetInt32());}
-static string Root => "$HOME/g3-migration";
+static string Root() => "$HOME/g3-migration";
 static int Network(string[] args){
     var gw=DetectGateway();var lan=DetectLan(gw);
     Console.WriteLine("G3 Linux service host configuration (no DNS/device changes)");
@@ -34,7 +34,7 @@ static int Network(string[] args){
     Console.Write("SSH port [22]: ");var pt=Console.ReadLine()?.Trim()??"";int port=pt==""?22:int.TryParse(pt,out var n)?n:0;
     if(!ValidIp(router)||!ValidIp(ip)||string.IsNullOrWhiteSpace(user)||port<1||port>65535){Console.Error.WriteLine("IP/SSH 参数无效");return 2;}
     var obj=new{routerIp=router,linuxIp=ip,sshUser=user,sshPort=port,linuxRoot="~/g3-migration",note="Temporary upstream-compatible HTTPS + anonymous MQTT migration services; no external MQTT required."};
-    File.WriteAllText(ConfigPath,JsonSerializer.Serialize(obj,new JsonSerializerOptions{WriteIndented=true}));
+    File.WriteAllText(ConfigPath(),JsonSerializer.Serialize(obj,new JsonSerializerOptions{WriteIndented=true}));
     Console.WriteLine("Saved "+ConfigPath);Console.WriteLine("Linux service host: "+ip);Console.WriteLine("MQTT Broker will run on Linux TCP 8883; HTTPS on TCP 443.");
     Console.WriteLine("No DNS, firewall, Docker or G3 settings changed.");return 0;
 }
