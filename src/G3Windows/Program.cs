@@ -40,7 +40,7 @@ static int Network(string[] args){
 static string AskMac(){Console.Write("G3 实际 Wi-Fi STA MAC（12位十六进制，不是 BLE MAC）: ");return(Console.ReadLine()??"").Replace(":","").Replace("-","").ToUpperInvariant();}
 static int LinuxCheck(){
     var s=Server();if(s==null)return 2;
-    string cmd="set -e; echo '--- OS ---'; . /etc/os-release 2>/dev/null && echo \"$PRETTY_NAME\" || uname -a; echo '--- Docker ---'; docker version --format '{{.Server.Version}}'; echo '--- Compose ---'; docker compose version; echo '--- Python ---'; python3 --version; echo '--- ports ---'; (ss -lnt 2>/dev/null | grep -E ':(443|8883)[[:space:]]' || true); echo '--- docker permission ---'; docker ps >/dev/null";
+    string cmd="set -e; echo '--- OS ---'; . /etc/os-release 2>/dev/null && echo \"$PRETTY_NAME\" || uname -a; echo '--- Docker ---'; docker version --format '{{.Server.Version}}'; echo '--- Compose ---'; docker compose version; echo '--- Python ---'; python3 --version; echo '--- OpenSSL ---'; openssl version; echo '--- ports ---'; (ss -lnt 2>/dev/null | grep -E ':(443|8883)[[:space:]]' || true); echo '--- docker permission ---'; docker ps >/dev/null";
     return Ssh(s.Value.host,s.Value.user,s.Value.port,cmd);
 }
 static int Deploy(){
@@ -72,9 +72,8 @@ static int OtaPrepare(){
     using var fs=File.OpenRead(file);var actual=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(fs));if(!actual.Equals(sha,StringComparison.OrdinalIgnoreCase)){Console.Error.WriteLine("SHA256 不匹配，拒绝继续");return 3;}
     Console.Write("OTA 目标标签 [V99.00.00]: ");var version=Console.ReadLine()?.Trim()??"";if(version=="")version="V99.00.00";if(!Regex.IsMatch(version,"^[A-Za-z0-9._-]{1,31}$"))return 2;
     Console.Write("确认固件与迁移包来自同一发布、型号正确、五项应答成功？输入 ENABLE: ");if(Console.ReadLine()!="ENABLE")return 1;
-    if(Scp(s.Value.host,s.Value.user,s.Value.port,file,"~/g3-migration/")!=0)return 4;
-    string name=Path.GetFileName(file);
-    string cmd="set -e; cd $HOME/g3-migration/upstream-g3-migrate; python3 enable.py --directory $HOME/g3-migration/lab --device "+mac+" --firmware $HOME/g3-migration/"+name+" --version "+version+"; docker compose -f $HOME/g3-migration/lab/compose.json up -d --no-deps --force-recreate https";
+    if(Scp(s.Value.host,s.Value.user,s.Value.port,file,"~/g3-migration/g3-verified.ota.bin.raw")!=0)return 4;
+    string cmd="set -e; cd $HOME/g3-migration/upstream-g3-migrate; python3 enable.py --directory $HOME/g3-migration/lab --device "+mac+" --firmware $HOME/g3-migration/g3-verified.ota.bin.raw --version "+version+"; docker compose -f $HOME/g3-migration/lab/compose.json up -d --no-deps --force-recreate https";
     return Ssh(s.Value.host,s.Value.user,s.Value.port,cmd);
 }
 static int OtaTrigger(){
