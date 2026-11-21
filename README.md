@@ -19,17 +19,17 @@ G3Windows.exe nas-stop
 
 **Current implementation:** network settings (NAS address manually entered), remote NAS diagnostics, Docker no-update service deployment, status/log inspection, timed upstream gateway responder, SHA256-verified G3 ESP32 raw application OTA offer, single-shot ESP32-only OTA trigger and isolated Compose stop.
 
-**Not yet automated:** per-device OpenWrt DNS configuration/rollback and Android BLE app handoff. The program provides DNS guidance but does not make unsafe global DNS changes. BLE provisioning uses the separate Android app. Firmware migration is not confirmed until real G3 acknowledgements, HTTPS artifact transfer and post-reboot version checks succeed.
+**Not yet automated:** per-device OpenWrt DNS configuration/rollback. Android BLE provisioning is provided by the companion app as a separate, manually coordinated step; Windows cannot itself control Android Bluetooth. The program provides DNS guidance but does not make unsafe global DNS changes. BLE provisioning uses the separate Android app. Firmware migration is not confirmed until real G3 acknowledgements, HTTPS artifact transfer and post-reboot version checks succeed.
 
 ## Preparation
 
 1. Verify model BRY88BBA15G / SENSOR3_ESP32 and actual Wi-Fi STA MAC (not BLE address).
 2. Download matching upstream migration bundle and G3 raw ESP32 firmware from the same compatible release; verify its published SHA256SUMS.
 3. On the NAS, assign a **dedicated** LAN IPv4 distinct from the management address. Ensure TCP 443 and 8883 are free on this IP.
-4. Run `network`, manually enter NAS management IPv4, SSH user and port; run `nas-check`.
+4. Run `network`, manually enter NAS management IPv4, SSH user and port, G3 service IPv4, MQTT service IPv4 and MQTT TLS port. HTTPS/MQTT must share the dedicated NAS service IP; the factory G3 migration protocol currently requires MQTT TLS 8883, so the EXE validates (rather than silently accepting) another port. Then run `nas-check`.
 5. Run `nas-deploy` to create an initial no-update stack in `/volume1/docker/g3-migration`; then `nas-status` and `nas-logs`.
 6. Use `dns-guide` to configure **device-specific** DNS for the three Daikin hostnames. Do not redirect all LAN clients. Ensure the G3 uses the correct DNS via DHCP.
-7. Short-press the recessed G3 network button and use the Android BLE tool to configure Wi-Fi and virtual gateway 020000000001, pointing to the G3 service IP.
+7. Install the companion Android APK. Short-press the recessed G3 network button, scan all BLE devices (or enter its BLE MAC), connect, enter 2.4 GHz Wi-Fi credentials and the same dedicated G3 service IP, keep virtual gateway MAC `020000000001`, then send provisioning. The app does not flash firmware. Check DHCP for the actual Wi-Fi STA MAC and confirm it matches the value entered in Windows.
 8. Run `responder` and confirm acknowledgements for snapshot_upload, get_weather, login_ipbox, get_filter_sensor3 and get_error_sensor3.
 9. Only after confirming identity, release consistency, SHA256 and gateway acknowledgements, run `ota-prepare`. Confirm HTTPS logs.
 10. `ota-trigger` requires a second explicit confirmation and sends one non-retained ESP32-only command. Keep power connected and verify HTTPS artifact-start/artifact full transfer, reboot, WebUI firmware version and sensors.
