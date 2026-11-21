@@ -16,7 +16,7 @@ jobs:
           git clone --filter=blob:none https://github.com/phicomm-io/iotcloud-community-firmware.git upstream
           git -C upstream checkout 1c9d2f373f0a9248d2360e03cf2a385c28532571
           New-Item -ItemType Directory -Path upstream-g3-migrate -Force | Out-Null
-          Copy-Item upstream/tools/daikin_g3_migrate/init.py,upstream/tools/daikin_g3_migrate/local_ota_server.py,upstream/tools/daikin_g3_migrate/local_gateway_responder.py,upstream/tools/daikin_g3_migrate/trigger.py upstream-g3-migrate/
+          Copy-Item upstream/tools/daikin_g3_migrate/init.py,upstream/tools/daikin_g3_migrate/enable.py,upstream/tools/daikin_g3_migrate/local_ota_server.py,upstream/tools/daikin_g3_migrate/local_gateway_responder.py,upstream/tools/daikin_g3_migrate/trigger.py upstream-g3-migrate/
           Copy-Item upstream/LICENSE upstream-g3-migrate/UPSTREAM-LICENSE -ErrorAction SilentlyContinue
           Set-Content upstream-g3-migrate/UPSTREAM-COMMIT.txt '1c9d2f373f0a9248d2360e03cf2a385c28532571'
       - name: Validate PowerShell
@@ -38,7 +38,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'help smoke test failed' }
           .\dist\G3Windows.exe guide
           if ($LASTEXITCODE -ne 0) { throw 'guide smoke test failed' }
-      - name: Package Windows executable and scripts
+      - name: Validate bundled migration tools\n        shell: pwsh\n        run: |\n          python -m compileall -q upstream-g3-migrate\n          if ($LASTEXITCODE -ne 0) { throw 'Python syntax validation failed' }\n          foreach ($name in @('init.py','enable.py','trigger.py','local_gateway_responder.py','local_ota_server.py')) { if (!(Test-Path (Join-Path upstream-g3-migrate $name))) { throw \"Missing $name\" } }\n      - name: Package Windows executable and scripts
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path package -Force | Out-Null
