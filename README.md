@@ -1,6 +1,6 @@
 # G3 Windows Migration Manager — HTTPS on NAS, external MQTT
 
-Windows x64 self-contained EXE. Windows does not need Docker Desktop or WSL2. The NAS runs **only the G3 HTTPS compatibility/OTA service**. The program does **not** deploy, start, stop, or modify an MQTT broker. MQTT is a user-supplied existing LAN service.
+Windows x64 self-contained EXE. Windows does not need Docker Desktop or WSL2. The NAS runs the G3 HTTPS compatibility/OTA service plus a small **TCP passthrough proxy** on port 8883. The proxy forwards encrypted bytes to the user-supplied existing MQTT broker; it is not an MQTT Broker and does not terminate MQTT/TLS. The program does **not** deploy, start, stop, or modify an MQTT broker.
 
 ## Commands
 
@@ -30,7 +30,7 @@ Run `network` and enter:
 
 The MQTT password is requested only when running `responder` or `ota-trigger`; it is not saved in `g3-network.json`. The MQTT CA is copied to the NAS migration directory because the G3 HTTPS compatibility service returns it through the stock broker-CA endpoint.
 
-The Windows program uses the configured external MQTT endpoint for gateway acknowledgements and the one-shot OTA publish. NAS deployment exposes HTTPS on TCP 443 only. It checks only that HTTPS address/port; it does not reserve TCP 8883 on the NAS.
+The Windows program uses the configured external MQTT endpoint for gateway acknowledgements and the one-shot OTA publish. The NAS exposes HTTPS on TCP 443 and a raw TCP passthrough on TCP 8883, forwarding to the configured broker host/port. G3 DNS overrides continue to point the factory hostnames to the NAS, so HTTPS is served locally and MQTT TLS is forwarded without inspection.
 
 ## Important protocol compatibility boundary
 
@@ -44,7 +44,7 @@ For TLS, supply the broker's public CA certificate in PEM format. Do not supply 
 2. Obtain the matching upstream migration bundle and G3 raw ESP32 application from the same compatible release; verify the upstream published SHA256SUMS.
 3. Confirm NAS TCP 443 is free on the chosen HTTPS address. The existing NAS management IP can be used; no additional IP is required if port 443 is available.
 4. Run `network`; enter all HTTPS and external MQTT settings. Run `nas-check`.
-5. Run `nas-deploy`. It creates an HTTPS-only Compose service under `/volume1/docker/g3-migration`, removes the generated local MQTT service before Compose starts, and injects the external broker CA into the HTTPS service. Verify with `nas-status` and `nas-logs`.
+5. Run `nas-deploy`. It creates an HTTPS service and a TCP passthrough proxy under `/volume1/docker/g3-migration`, removes the generated local MQTT Broker service before Compose starts, and injects the external broker CA into the HTTPS service. Verify with `nas-status` and `nas-logs`.
 6. Configure device-specific DNS in OpenWrt for the three Daikin HTTPS hostnames to the NAS HTTPS IP. Do not redirect the whole LAN. MQTT broker DNS must resolve to the user-supplied external broker.
 7. Install the companion Android APK. Short-press the recessed G3 network button, scan/select the BLE device, enter 2.4 GHz Wi-Fi credentials and the HTTPS compatibility service IP, keep virtual gateway MAC `020000000001`, and send provisioning. The Android app does not flash firmware.
 8. Verify the actual Wi-Fi STA MAC in DHCP and run `responder`. It connects to the configured external MQTT broker and sends bounded gateway acknowledgements. Confirm the expected request/response topics.
