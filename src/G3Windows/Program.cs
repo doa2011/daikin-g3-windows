@@ -46,7 +46,7 @@ static int Network(string[] options) {
     Console.Write("G3 HTTPS 服务 IPv4（默认使用 NAS 管理 IP）: "); string serviceIp = Console.ReadLine()?.Trim() ?? ""; if (string.IsNullOrWhiteSpace(serviceIp)) serviceIp = nas; if (!ValidIp(serviceIp)) { Console.Error.WriteLine("HTTPS 服务 IP 无效"); return 2; }
     Console.Write("现有 MQTT 服务器地址（IP 或域名）: "); string mqttHost = Console.ReadLine()?.Trim() ?? ""; if (!ValidHost(mqttHost)) { Console.Error.WriteLine("MQTT 主机地址无效"); return 2; }
     Console.Write("现有 MQTT 端口 [8883]: "); string mqttPortText = Console.ReadLine()?.Trim() ?? ""; int mqttPort = string.IsNullOrWhiteSpace(mqttPortText) ? 8883 : int.TryParse(mqttPortText,out var mp) ? mp : 0; if (mqttPort < 1 || mqttPort > 65535) { Console.Error.WriteLine("MQTT 端口无效"); return 2; }
-    Console.Write("MQTT TLS [Y/n]: "); string tlsText = Console.ReadLine()?.Trim() ?? ""; bool mqttTls = !tlsText.Equals("n",StringComparison.OrdinalIgnoreCase);
+    Console.Write("MQTT TLS（原厂 G3 协议要求 TLS，输入 Y 确认）: "); string tlsText = Console.ReadLine()?.Trim() ?? ""; bool mqttTls = tlsText.Equals("Y",StringComparison.OrdinalIgnoreCase); if(!mqttTls){Console.Error.WriteLine("G3 原厂 MQTT TLS 为必需项");return 2;}
     Console.Write("MQTT 用户名（可留空）: "); string mqttUser = Console.ReadLine() ?? "";
     Console.Write("MQTT CA PEM 文件路径（可留空使用系统信任链）: "); string mqttCa = (Console.ReadLine() ?? "").Trim();
     if (!string.IsNullOrWhiteSpace(mqttCa) && !File.Exists(mqttCa)) { Console.Error.WriteLine("找不到 MQTT CA 文件"); return 2; }
@@ -106,8 +106,8 @@ static int NasDeploy() {
     Console.Write("确认继续部署到 "+nas+"，服务 IP "+ip+"？输入 YES: ");
     if(Console.ReadLine()!="YES")return 1;
     string root="/volume1/docker/g3-migration";
-    string remoteCheck=$"set -e; ip -o -4 addr show | grep -F ' {ip}/' >/dev/null || {{ echo SERVICE_IP_NOT_ASSIGNED; exit 20; }}; for p in 443 8883; do if ss -lnt 2>/dev/null | grep -E '[:.]$p[[:space:]]' | grep -F '{ip}:' >/dev/null; then echo PORT_OCCUPIED_$p; exit 21; fi; done; mkdir -p {root}/upstream-g3-migrate";
-    if(SshRun(nas,user,port,"sh -lc "+Q(remoteCheck))!=0){Console.Error.WriteLine("NAS 服务 IP 未配置或端口被占用；未部署。请先为 NAS 配置独立服务 IP。");return 4;}
+    string remoteCheck=$"set -e; ip -o -4 addr show | grep -F ' {ip}/' >/dev/null || {{ echo HTTPS_SERVICE_IP_NOT_ASSIGNED; exit 20; }}; if ss -lnt 2>/dev/null | grep -E '[:.]443[[:space:]]' | grep -F '{ip}:' >/dev/null; then echo HTTPS_PORT_443_OCCUPIED; exit 21; fi; mkdir -p {root}/upstream-g3-migrate";
+    if(SshRun(nas,user,port,"sh -lc "+Q(remoteCheck))!=0){Console.Error.WriteLine("HTTPS 服务 IP 未配置或 443 端口被占用；未部署。可直接使用 NAS 管理 IP，无需额外 IP。");return 4;}
     if(ScpRun(nas,user,port,bundle,root)!=0)return 5;
     if(ScpRun(nas,user,port,mqttCa,root+"/mqtt-ca.pem")!=0)return 5;
     string prep=$"set -e; D=/usr/local/bin/docker; cd {root}; $D run --rm -v {root}:/workspace -w /workspace/upstream-g3-migrate python:3.12-slim sh -lc 'apt-get update -qq && apt-get install -y -qq openssl >/dev/null && python init.py --address {ip} --device {sta} --output /workspace/lab'; cp {root}/mqtt-ca.pem {root}/lab/mqtt-ca.pem; python3 -c 'import json; p=\"{root}/lab/compose.json\"; d=json.load(open(p)); d[\"services\"].pop(\"mqtt\",None); c=d[\"services\"][\"https\"][\"command\"]; i=c.index(\"--broker-ca\"); c[i+1]=\"/lab/mqtt-ca.pem\"; open(p,\"w\").write(json.dumps(d,indent=2))'; sed -i 's@/workspace/lab@{root}/lab@g' {root}/lab/compose.json; $D compose -f {root}/lab/compose.json up -d"
