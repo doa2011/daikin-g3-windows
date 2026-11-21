@@ -42,8 +42,10 @@ static int Network(string[] options) {
     if (!ValidIp(router) || !ValidIp(nas)) { Console.Error.WriteLine("Invalid IPv4. Use dotted decimal addresses."); return 2; }
     Console.Write("SSH 用户名 [root]: "); string sshUser = Console.ReadLine()?.Trim() ?? ""; if (string.IsNullOrWhiteSpace(sshUser)) sshUser = "root";
     Console.Write("SSH 端口 [22]: "); string portText = Console.ReadLine()?.Trim() ?? ""; int sshPort = string.IsNullOrWhiteSpace(portText) ? 22 : int.TryParse(portText, out var parsedPort) ? parsedPort : 0; if (sshPort < 1 || sshPort > 65535) { Console.Error.WriteLine("SSH 端口无效"); return 2; }
-    Console.Write("G3 专用服务 IP（未配置可留空）: "); string serviceIp = Console.ReadLine()?.Trim() ?? ""; if (!string.IsNullOrWhiteSpace(serviceIp) && !ValidIp(serviceIp)) { Console.Error.WriteLine("服务 IP 无效"); return 2; }
-    var data = new { routerIp = router, nasIp = nas, sshUser, sshPort, serviceIp, windowsLanIp = local?.ToString(), detectedGateway = gateway?.ToString(), note = "NAS management IP is manual. G3 service IP must be separately assigned; do not reuse an occupied NAS address." };
+    Console.Write("G3 专用 HTTPS 服务 IPv4（NAS 独立地址）: "); string serviceIp = Console.ReadLine()?.Trim() ?? ""; if (!string.IsNullOrWhiteSpace(serviceIp) && !ValidIp(serviceIp)) { Console.Error.WriteLine("服务 IP 无效"); return 2; }
+    Console.Write("MQTT 服务 IPv4（默认与 HTTPS 相同）: "); string mqttIp = Console.ReadLine()?.Trim() ?? ""; if (string.IsNullOrWhiteSpace(mqttIp)) mqttIp = serviceIp; if (!ValidIp(mqttIp) || mqttIp != serviceIp) { Console.Error.WriteLine("当前上游 G3 证书/服务生成流程要求 MQTT 与 HTTPS 使用同一 NAS 服务 IP"); return 2; }
+    Console.Write("MQTT TLS 端口 [8883]: "); string mqttPortText = Console.ReadLine()?.Trim() ?? ""; int mqttPort = string.IsNullOrWhiteSpace(mqttPortText) ? 8883 : int.TryParse(mqttPortText,out var mp) ? mp : 0; if (mqttPort != 8883) { Console.Error.WriteLine("当前原厂 G3 上游协议固定使用 TLS 8883；请填写 8883，不能任意更改"); return 2; }
+    var data = new { routerIp = router, nasIp = nas, sshUser, sshPort, serviceIp, mqttIp, mqttPort, windowsLanIp = local?.ToString(), detectedGateway = gateway?.ToString(), note = "NAS management IP is manual. G3 service IP must be separately assigned; do not reuse an occupied NAS address." };
     var path = Path.Combine(AppContext.BaseDirectory, "g3-network.json");
     File.WriteAllText(path, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
     Console.WriteLine("Saved: " + path);
@@ -123,7 +125,7 @@ static string AskMac() {
 static int Responder() {
     var n=Nas();if(n==null)return 2;
     string mac=AskMac();if(!Regex.IsMatch(mac,"^[0-9A-F]{12}$"))return 2;
-    Console.Write("G3 专用服务 IPv4: ");string ip=Console.ReadLine()?.Trim()??"";
+    Console.Write("G3 HTTPS/MQTT 服务 IPv4: ");string ip=Console.ReadLine()?.Trim()??"";
     if(!ValidIp(ip))return 2;
     Console.Write("应答时长（秒，60-3600，默认 600）: ");string v=Console.ReadLine()?.Trim()??"";
     int seconds=string.IsNullOrEmpty(v)?600:int.TryParse(v,out int parsed)?parsed:0;
@@ -212,13 +214,13 @@ static int Check() {
     return errors == 0 ? 0 : 1;
 }
 static void Help() {
-    Console.WriteLine("G3Windows v0.3 - factory G3 migration host helper");
+    Console.WriteLine("G3Windows v0.4 - factory G3 migration host helper");
     Console.WriteLine("  G3Windows.exe check       Check Docker, WSL, PowerShell and ports");
     Console.WriteLine("  G3Windows.exe guide       Print safe setup steps");
     Console.WriteLine("  G3Windows.exe network [--router-ip IP] [--nas-ip IP]  Detect router; manually enter NAS/SSH");
     Console.WriteLine("  G3Windows.exe nas-check  Test SSH and remote Docker/Compose on Synology");
     Console.WriteLine("  G3Windows.exe nas-deploy  Deploy upstream NO-OTA HTTPS/MQTT stack to Synology");
-    Console.WriteLine("  G3Windows.exe nas-status  Check deployed G3 migration services");
+    Console.WriteLine("  G3Windows.exe nas-status  Check deployed G3 migration services");\n    Console.WriteLine("  MQTT endpoint: manually enter service IP; TLS port 8883 is enforced by upstream G3 protocol.");
     Console.WriteLine("  G3Windows.exe nas-logs    Inspect G3 HTTPS/MQTT logs");
     Console.WriteLine("  G3Windows.exe responder   Run timed G3 gateway acknowledgements");
     Console.WriteLine("  G3Windows.exe ota-prepare Verify raw firmware SHA256 and enable OTA offer");
@@ -226,7 +228,7 @@ static void Help() {
     Console.WriteLine("  G3Windows.exe dns-guide   Show per-device DNS requirements");
     Console.WriteLine("  G3Windows.exe nas-stop    Stop only the G3 Compose stack");
     Console.WriteLine("  G3Windows.exe help        Show this help");
-    Console.WriteLine("This tool DOES NOT trigger firmware updates.");
+    Console.WriteLine("MQTT endpoint is manually configurable by IP; stock G3 TLS port is fixed at 8883.");
 }
 if (args.Length == 0) { Help(); return 0; }
 switch (args[0].ToLowerInvariant()) {
