@@ -86,8 +86,10 @@ static int NasDeploy() {
     int port=c.GetProperty("sshPort").GetInt32();
     Console.Write("G3 实际 Wi-Fi STA MAC（12位十六进制，不是 BLE MAC）: "); string sta=(Console.ReadLine()??"").Replace(":","").Replace("-","").ToUpperInvariant();
     if(!Regex.IsMatch(sta,"^[0-9A-F]{12}$")){Console.Error.WriteLine("STA MAC 格式错误");return 2;}
-    Console.Write("G3 专用服务 IP（必须已配置在 NAS 网卡上，不能与 NAS 管理 IP 相同）: "); string ip=Console.ReadLine()?.Trim()??"";
-    if(!ValidIp(ip)||ip==nas){Console.Error.WriteLine("服务 IP 无效，必须是 NAS 已配置的独立 IPv4");return 2;}
+    Console.Write("G3 HTTPS 服务 IPv4（回车使用 network 中的配置）: "); string ip=Console.ReadLine()?.Trim()??""; if(string.IsNullOrWhiteSpace(ip)) ip=c.TryGetProperty("serviceIp",out var serviceValue)?serviceValue.GetString()??"":"";
+    Console.Write("MQTT 服务 IPv4（回车使用配置，必须与 HTTPS 相同）: "); string mqttIp=Console.ReadLine()?.Trim()??""; if(string.IsNullOrWhiteSpace(mqttIp)) mqttIp=c.TryGetProperty("mqttIp",out var mqttValue)?mqttValue.GetString()??ip:ip;
+    Console.Write("MQTT TLS 端口 [8883]: "); string mqttPortText=Console.ReadLine()?.Trim()??""; int mqttPort=string.IsNullOrWhiteSpace(mqttPortText)?(c.TryGetProperty("mqttPort",out var portValue)?portValue.GetInt32():8883):int.TryParse(mqttPortText,out var parsedMqttPort)?parsedMqttPort:0;
+    if(!ValidIp(ip)||ip==nas||mqttIp!=ip||mqttPort!=8883){Console.Error.WriteLine("服务 IP 必须是 NAS 已配置的独立 IPv4；MQTT IP 必须与 HTTPS 相同，TLS 端口按原厂 G3 协议固定 8883");return 2;}
     var bundle=Path.Combine(BaseDir(),"upstream-g3-migrate");
     foreach(var name in new[]{"init.py","enable.py","local_ota_server.py","local_gateway_responder.py","trigger.py"})
         if(!File.Exists(Path.Combine(bundle,name))){Console.Error.WriteLine("缺少随程序发布的上游文件: "+name);return 3;}
@@ -159,7 +161,7 @@ static int OtaPrepare() {
 static int OtaTrigger() {
     var n=Nas();if(n==null)return 2;
     string mac=AskMac();if(!Regex.IsMatch(mac,"^[0-9A-F]{12}$"))return 2;
-    Console.Write("G3 专用服务 IPv4: ");string ip=Console.ReadLine()?.Trim()??"";
+    Console.Write("G3 HTTPS/MQTT 服务 IPv4: ");string ip=Console.ReadLine()?.Trim()??"";
     if(!ValidIp(ip))return 2;
     Console.Write("OTA 目标版本 [V99.00.00]: ");string version=Console.ReadLine()?.Trim()??"";
     if(version.Length==0)version="V99.00.00";
