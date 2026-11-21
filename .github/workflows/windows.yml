@@ -10,7 +10,16 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Fetch pinned upstream G3 migration tools\n        shell: pwsh\n        run: |\n          git clone --filter=blob:none https://github.com/phicomm-io/iotcloud-community-firmware.git upstream\n          git -C upstream checkout 1c9d2f373f0a9248d2360e03cf2a385c28532571\n          New-Item -ItemType Directory -Path upstream-g3-migrate -Force | Out-Null\n          Copy-Item upstream/tools/daikin_g3_migrate/init.py,upstream/tools/daikin_g3_migrate/local_ota_server.py,upstream/tools/daikin_g3_migrate/local_gateway_responder.py,upstream/tools/daikin_g3_migrate/trigger.py upstream-g3-migrate/\n          Copy-Item upstream/LICENSE upstream-g3-migrate/UPSTREAM-LICENSE -ErrorAction SilentlyContinue\n          Set-Content upstream-g3-migrate/UPSTREAM-COMMIT.txt '1c9d2f373f0a9248d2360e03cf2a385c28532571'\n      - name: Validate PowerShell
+      - name: Fetch pinned upstream G3 migration tools
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none https://github.com/phicomm-io/iotcloud-community-firmware.git upstream
+          git -C upstream checkout 1c9d2f373f0a9248d2360e03cf2a385c28532571
+          New-Item -ItemType Directory -Path upstream-g3-migrate -Force | Out-Null
+          Copy-Item upstream/tools/daikin_g3_migrate/init.py,upstream/tools/daikin_g3_migrate/local_ota_server.py,upstream/tools/daikin_g3_migrate/local_gateway_responder.py,upstream/tools/daikin_g3_migrate/trigger.py upstream-g3-migrate/
+          Copy-Item upstream/LICENSE upstream-g3-migrate/UPSTREAM-LICENSE -ErrorAction SilentlyContinue
+          Set-Content upstream-g3-migrate/UPSTREAM-COMMIT.txt '1c9d2f373f0a9248d2360e03cf2a385c28532571'
+      - name: Validate PowerShell
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -33,7 +42,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path package -Force | Out-Null
-          Copy-Item dist/G3Windows.exe,prepare.ps1,start.ps1,stop.ps1,README.md package/\n          Copy-Item upstream-g3-migrate package/upstream-g3-migrate -Recurse
+          Copy-Item dist/G3Windows.exe,prepare.ps1,start.ps1,stop.ps1,README.md package/
+          Copy-Item upstream-g3-migrate package/upstream-g3-migrate -Recurse
           Compress-Archive -Path package/* -DestinationPath g3-windows-final-win-x64.zip
       - uses: actions/upload-artifact@v4
         with:
@@ -50,5 +60,5 @@ jobs:
             Automatically updated Windows x64 self-contained build from the latest successful main-branch workflow.
             Download g3-windows-final-win-x64.zip below. Extract and run G3Windows.exe.
             Includes pinned upstream migration scripts and NAS remote deployment of the initial NO-OTA stack. DNS, BLE provisioning and OTA remain separately gated.
-          files: g3-windows-v0.4-win-x64.zip
+          files: g3-windows-final-win-x64.zip
           make_latest: true
