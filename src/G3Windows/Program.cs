@@ -50,7 +50,7 @@ static int Network(string[] options) {
     Console.Write("MQTT 用户名（可留空）: "); string mqttUser = Console.ReadLine() ?? "";
     Console.Write("MQTT CA PEM 文件路径（可留空使用系统信任链）: "); string mqttCa = (Console.ReadLine() ?? "").Trim();
     if (!string.IsNullOrWhiteSpace(mqttCa) && !File.Exists(mqttCa)) { Console.Error.WriteLine("找不到 MQTT CA 文件"); return 2; }
-    var data = new { routerIp = router, nasIp = nas, sshUser, sshPort, serviceIp, mqttIp, mqttPort, windowsLanIp = local?.ToString(), detectedGateway = gateway?.ToString(), note = "NAS management IP is manual. G3 service IP must be separately assigned; do not reuse an occupied NAS address." };
+    var data = new { routerIp = router, nasIp = nas, sshUser, sshPort, serviceIp, mqttHost, mqttPort, mqttTls, mqttUser, mqttCa, windowsLanIp = local?.ToString(), detectedGateway = gateway?.ToString(), note = "NAS runs HTTPS only; MQTT is a user-supplied external broker. Password is never persisted." };
     var path = Path.Combine(AppContext.BaseDirectory, "g3-network.json");
     File.WriteAllText(path, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
     Console.WriteLine("Saved: " + path);
