@@ -27,7 +27,7 @@ G3Windows.exe linux-stop
 
 Run `network` once. Enter the Linux host LAN IPv4, SSH username and port (usually 22). The OpenWrt router IPv4 is detected as a hint. No MQTT host, username or password is needed: the migration bundle creates the temporary Mosquitto service required by the stock G3 migration protocol.
 
-On Linux, the SSH user must be able to run `docker` and `docker compose` without an interactive sudo prompt. Install Python 3, OpenSSL, Docker Engine and the Docker Compose plugin. The user must have permission to bind TCP 443 and 8883; use a suitable Docker group membership or root SSH only if you understand the security implications. Keep the Linux host wired, awake and on the same LAN.
+On Debian/Ubuntu Linux, install `openssh-server`, `python3`, `openssl`, Docker Engine and the Docker Compose plugin. Example base packages: `sudo apt update && sudo apt install -y openssh-server python3 openssl`. Install Docker Engine + Compose from Docker's official repository. Add the SSH user to the `docker` group (`sudo usermod -aG docker USER`) and log out/in so the group applies. The SSH user must run `docker`, `docker compose` and bind TCP 443/8883 without an interactive sudo prompt. Keep the Linux host wired, awake and on the same LAN; reserve its IPv4 in DHCP.
 
 ## Deployment flow
 
