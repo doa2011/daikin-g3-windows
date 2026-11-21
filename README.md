@@ -1,61 +1,58 @@
-# G3 Windows Migration Manager — HTTPS on NAS, external MQTT
+# G3 Windows Manager + Linux migration host / G3 配网与 OTA 管理工具
 
-Windows x64 self-contained EXE. Windows does not need Docker Desktop or WSL2. The NAS runs the G3 HTTPS compatibility/OTA service plus a small **TCP passthrough proxy** on port 8883. The proxy forwards encrypted bytes to the user-supplied existing MQTT broker; it is not an MQTT Broker and does not terminate MQTT/TLS. The program does **not** deploy, start, stop, or modify an MQTT broker.
+Windows x64 self-contained EXE. Windows does not need Docker, WSL2 or Bluetooth. The Linux computer is the always-on LAN service host and runs the **upstream-compatible temporary HTTPS service and Mosquitto MQTT broker** in Docker Compose. The Android phone is the only BLE provisioning client.
 
-## Commands
+> Scope: stock-screen BRY88BBA15G / SENSOR3_ESP32 wireless migration. The first OTA updates the ESP32 application only and preserves the factory screen MCU. Do not use G1/G2, signed OTA, full-flash images or screen MCU images for this migration step.
+
+## Device roles
+
+- **Android:** BLE scan/connect; short-press the G3 rear network button, then send 2.4 GHz Wi-Fi credentials and virtual gateway identity.
+- **Windows:** configure the Linux SSH target, deploy/check services, run the bounded gateway responder, verify firmware SHA256, enable OTA and send the one-shot OTA command.
+- **Ordinary Linux computer:** Docker Engine + Compose, Python 3 and OpenSSL. Runs the upstream-generated HTTPS service on TCP 443 and temporary Mosquitto TLS broker on TCP 8883. No Bluetooth adapter is required.
+
+## Windows commands
 
 ```bat
 G3Windows.exe network
-G3Windows.exe nas-check
-G3Windows.exe nas-deploy
-G3Windows.exe nas-status
+G3Windows.exe linux-check
+G3Windows.exe linux-deploy
+G3Windows.exe linux-status
 G3Windows.exe dns-guide
 G3Windows.exe responder
-G3Windows.exe nas-logs
+G3Windows.exe linux-logs
 G3Windows.exe ota-prepare
 G3Windows.exe ota-trigger
-G3Windows.exe nas-stop
+G3Windows.exe linux-stop
 ```
 
-## Runtime configuration
+Run `network` once. Enter the Linux host LAN IPv4, SSH username and port (usually 22). The OpenWrt router IPv4 is detected as a hint. No MQTT host, username or password is needed: the migration bundle creates the temporary Mosquitto service required by the stock G3 migration protocol.
 
-Run `network` and enter:
-- OpenWrt router IPv4
-- NAS management IPv4, SSH user and port
-- HTTPS service IPv4 (defaults to NAS management IPv4; no extra NAS IP is required if TCP 443 is free)
-- Existing MQTT host/IP and port
-- MQTT TLS confirmation (TLS is required by the stock G3 migration flow)
-- MQTT username (optional)
-- Public MQTT CA PEM file path
+On Linux, the SSH user must be able to run `docker` and `docker compose` without an interactive sudo prompt. Install Python 3, OpenSSL, Docker Engine and the Docker Compose plugin. The user must have permission to bind TCP 443 and 8883; use a suitable Docker group membership or root SSH only if you understand the security implications. Keep the Linux host wired, awake and on the same LAN.
 
-The MQTT password is requested only when running `responder` or `ota-trigger`; it is not saved in `g3-network.json`. The MQTT CA is copied to the NAS migration directory because the G3 HTTPS compatibility service returns it through the stock broker-CA endpoint.
+## Deployment flow
 
-The Windows program uses the configured external MQTT endpoint for gateway acknowledgements and the one-shot OTA publish. The NAS exposes HTTPS on TCP 443 and a raw TCP passthrough on TCP 8883, forwarding to the configured broker host/port. All three per-device factory DNS overrides point to the NAS IP, so HTTPS is served locally and MQTT TLS is forwarded without inspection.
+1. Verify the device is **BRY88BBA15G / SENSOR3_ESP32**. Obtain its actual Wi-Fi STA MAC from the DHCP lease/device label. Do not use its BLE address or the virtual gateway MAC.
+2. Download the complete current `daikin_G3_migration.tar.gz` and matching `daikin_BRY88BBA15G.ota.bin.raw` from the [upstream G3 downloads](https://phicomm-io.github.io/#daikin-g3-downloads). Verify the release `SHA256SUMS`. Never mix scripts and firmware from different releases.
+3. Confirm Linux host TCP 443 and 8883 are free and reachable from the G3. On Windows run `G3Windows.exe network`, then `linux-check`.
+4. Run `linux-deploy`. This runs the pinned upstream `init.py` on Linux and starts its generated Compose stack. Initial state is **NO-OTA**. It runs both HTTPS and Mosquitto locally on Linux; it does not use an external Broker.
+5. Configure OpenWrt DNS overrides **for this G3 only** for all three factory names, resolving them to the Linux host IP:
+   - `newlifemulti.daikin-china.com.cn`
+   - `newlifemulti-cdh.daikin-china.com.cn`
+   - `newlifemulti-cdh-core.daikin-china.com.cn`
+   Do not use a global DNS rewrite or redirect other LAN devices.
+6. In Android, short-press the recessed rear network button (do not long-press/reset), scan for the exact `SENSOR3_…` BLE device, and send the 2.4 GHz SSID/password plus Linux host IP as `gateway_ip` and `020000000001` as the virtual `gateway_mac`. The STA MAC remains the real device identity. Bluetooth closes after provisioning; short-press again before retrying.
+7. Confirm the device obtained Wi-Fi/DHCP and its STA MAC. Run `responder` in Windows and leave it active. It invokes the upstream bounded responder against the Linux Mosquitto container. Confirm all five events: `snapshot_upload`, `get_weather`, `login_ipbox`, `get_filter_sensor3`, `get_error_sensor3`. Run only one responder for this device. The temporary weather response is synthetic, not a real weather reading.
+8. Inspect `linux-logs`. Do not proceed if the five gateway acknowledgements or HTTPS login are missing.
+9. Only then run `ota-prepare`: select the matching raw G3 ESP32 app, enter its SHA256 and the tested temporary target label `V99.00.00`. The tool independently verifies the SHA256 and the upstream `enable.py` validates the ESP32/G3 application header before enabling the offer. The broker CA/key generated by `init.py` is preserved.
+10. Run `ota-trigger` only after the explicit confirmation. It invokes the upstream `trigger.py` to publish exactly one non-retained ESP32-only OTA command. Keep power connected. Inspect HTTPS logs for `artifact-start` and `artifact` (HTTP 200 and full byte count), then verify reboot, DHCP, device WebUI, firmware version and sensor readings.
+11. Restore the original per-device DNS settings. Run `linux-stop` to stop/remove only the temporary migration containers. Keep backups separately.
 
-## Important protocol compatibility boundary
+## Security boundary
 
-The upstream G3 migration flow obtains broker CA information and a device token through HTTPS, then the G3 itself connects to the broker using its factory device identity. A user-supplied MQTT host/port/CA and credentials let the Windows-side responder/OTA publisher connect to that broker. **This alone cannot make an arbitrary broker accept the G3's factory device identity.** The existing broker must already be configured to accept the G3 device connection/authentication pattern and required topics. This tool does not rewrite broker ACLs, users, authentication plugins, or TLS listeners.
+The upstream migration Mosquitto config intentionally uses anonymous TLS for a temporary compatibility broker. It is suitable only on a trusted, isolated LAN for the migration window. Do not port-forward 443/8883 to the public Internet; firewall the services to the LAN/G3 as appropriate; do not reuse this broker as a permanent IoTCloud broker. Stop the stack and remove the temporary lab directory after migration. The generated CA/key are per-lab files.
 
-For TLS, supply the broker's public CA certificate in PEM format. Do not supply a private key. TLS is enforced for the stock G3 migration workflow; non-TLS MQTT is not supported by this mode.
+## What is and is not verified
 
-## Deployment and validation
+CI verifies the Windows EXE build, bundled upstream Python syntax and packaging. It does not prove live G3 BLE provisioning, Wi-Fi association, gateway state-machine progression, firmware download or reboot. Those require the physical G3. The screen MCU is not updated by this first ESP32 OTA; after successful migration, use the device WebUI and the matching release's screen resource procedure.
 
-1. Verify model BRY88BBA15G / SENSOR3_ESP32 and actual Wi-Fi STA MAC (not BLE MAC).
-2. Obtain the matching upstream migration bundle and G3 raw ESP32 application from the same compatible release; verify the upstream published SHA256SUMS.
-3. Confirm NAS TCP 443 is free on the chosen HTTPS address. The existing NAS management IP can be used; no additional IP is required if port 443 is available.
-4. Run `network`; enter all HTTPS and external MQTT settings. Run `nas-check`.
-5. Run `nas-deploy`. It creates an HTTPS service and a TCP passthrough proxy under `/volume1/docker/g3-migration`, removes the generated local MQTT Broker service before Compose starts, and injects the external broker CA into the HTTPS service. Verify with `nas-status` and `nas-logs`.
-6. Configure device-specific DNS in OpenWrt for the three Daikin HTTPS hostnames to the NAS HTTPS IP. Do not redirect the whole LAN. The three factory names all resolve to the NAS HTTPS IP; its TCP 8883 proxy forwards the TLS stream to the user-supplied external broker.
-7. Install the companion Android APK. Short-press the recessed G3 network button, scan/select the BLE device, enter 2.4 GHz Wi-Fi credentials and the HTTPS compatibility service IP, keep virtual gateway MAC `020000000001`, and send provisioning. The Android app does not flash firmware.
-8. Verify the actual Wi-Fi STA MAC in DHCP and run `responder`. It connects to the configured external MQTT broker and sends bounded gateway acknowledgements. Confirm the expected request/response topics.
-9. Only after confirming device identity, release consistency, SHA256, broker CA, broker device-auth compatibility and gateway acknowledgements, run `ota-prepare`. Confirm HTTPS logs.
-10. Run `ota-trigger` only after the explicit confirmation prompt. It publishes exactly one ESP32-only OTA command to the configured external MQTT broker. Keep power connected; verify artifact-start/artifact transfer logs, reboot, WebUI firmware version and sensors.
-11. Restore original device-specific DNS and run `nas-stop`. This stops only the HTTPS Compose service; it does not touch the external MQTT broker.
-
-## What is not claimed as verified
-
-CI compilation does not prove live G3 compatibility. Real-device acceptance requires BLE provisioning, HTTPS login, G3 connection to the external MQTT broker, gateway acknowledgements, full firmware artifact transfer, reboot, and post-upgrade version/sensor checks. Screen firmware is separate from the community ESP32 application.
-
-Upstream source: https://github.com/phicomm-io/iotcloud-community-firmware/tree/main/tools/daikin_g3_migrate
-
-Never publish Wi-Fi passwords, MQTT passwords, factory credentials, private CA keys, or SSH keys.
+Upstream migration implementation and license are pinned in the bundled `upstream-g3-migrate/UPSTREAM-COMMIT.txt` and `UPSTREAM-LICENSE`. See the [upstream migration guide](https://github.com/phicomm-io/iotcloud-community-firmware/tree/main/tools/daikin_g3_migrate).
