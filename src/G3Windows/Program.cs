@@ -106,7 +106,7 @@ static int NasDeploy() {
     Console.Write("确认继续部署到 "+nas+"，服务 IP "+ip+"？输入 YES: ");
     if(Console.ReadLine()!="YES")return 1;
     string root="/volume1/docker/g3-migration";
-    string remoteCheck=$"set -e; ip -o -4 addr show | grep -F ' {ip}/' >/dev/null || {{ echo HTTPS_SERVICE_IP_NOT_ASSIGNED; exit 20; }}; for p in 443 8883; do if ss -lnt 2>/dev/null | grep -E '[:.]$p[[:space:]]' | grep -F '{ip}:' >/dev/null; then echo PORT_OCCUPIED_$p; exit 21; fi; done; mkdir -p {root}/upstream-g3-migrate";
+    string remoteCheck=$"set -e; ip -o -4 addr show | grep -F ' {ip}/' >/dev/null || {{ echo HTTPS_SERVICE_IP_NOT_ASSIGNED; exit 20; }}; if ss -lnt 2>/dev/null | grep -E '[:.]443[[:space:]]|[:.]8883[[:space:]]' >/dev/null; then echo PORT_443_OR_8883_OCCUPIED; exit 21; fi; mkdir -p {root}/upstream-g3-migrate";
     if(SshRun(nas,user,port,"sh -lc "+Q(remoteCheck))!=0){Console.Error.WriteLine("HTTPS 服务 IP 未配置或 443 端口被占用；未部署。可直接使用 NAS 管理 IP，无需额外 IP。");return 4;}
     if(ScpRun(nas,user,port,bundle,root)!=0)return 5;
     if(ScpRun(nas,user,port,mqttCa,root+"/mqtt-ca.pem")!=0)return 5;
