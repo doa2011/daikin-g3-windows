@@ -1,55 +1,42 @@
-# Daikin G3 Migration Manager — Windows
+# G3 Windows Migration Manager — Docker/NAS mode
 
-Windows x64 self-contained .NET 8 application for managing the Daikin G3 migration workflow through a Synology NAS Docker host.
+Self-contained Windows x64 executable. Windows does not need Docker Desktop or WSL2. NAS SSH access, Docker Engine/Compose, and a separately assigned G3 service IP are required.
 
-## Current implemented commands
-
-- `network`: auto-detect Windows IPv4/default gateway; manually enter OpenWrt, NAS management IP, SSH user/port and optional G3 service IP.
-- `nas-check`: SSH to Synology and verify Docker Engine/Compose.
-- `nas-deploy`: deploy the pinned upstream initial NO-OTA HTTPS/MQTT compatibility stack to Synology.
-- `nas-status`: inspect the deployed Compose stack and listener state.
-
-Windows does not require Docker Desktop or WSL2. Windows OpenSSH Client (ssh/scp) is required.
-
-## First use
+## Commands
 
 ```bat
 G3Windows.exe network
 G3Windows.exe nas-check
-```
-
-Assign a dedicated service IPv4 to the NAS interface before deployment. It must be different from the NAS management IP and must be reachable by the G3. The NAS management address in this user's tested LAN is 192.168.99.130 and OpenWrt is 192.168.99.1, but the EXE asks for values instead of hardcoding them.
-
-Then run:
-
-```bat
 G3Windows.exe nas-deploy
 G3Windows.exe nas-status
+G3Windows.exe dns-guide
+G3Windows.exe responder
+G3Windows.exe nas-logs
+G3Windows.exe ota-prepare
+G3Windows.exe ota-trigger
+G3Windows.exe nas-stop
 ```
 
-The deploy command asks for the actual Wi-Fi STA MAC (not BLE MAC) and dedicated service IP, verifies that the service IP is assigned to the NAS, checks TCP 443/8883 on that address, uploads the bundled upstream scripts, generates the upstream lab and starts Docker Compose.
+**Current implementation:** network settings (NAS address manually entered), remote NAS diagnostics, Docker no-update service deployment, status/log inspection, timed upstream gateway responder, SHA256-verified G3 ESP32 raw application OTA offer, single-shot ESP32-only OTA trigger and isolated Compose stop.
 
-## Safety boundaries
+**Not yet automated:** per-device OpenWrt DNS configuration/rollback and Android BLE app handoff. The program provides DNS guidance but does not make unsafe global DNS changes. BLE provisioning uses the separate Android app. Firmware migration is not confirmed until real G3 acknowledgements, HTTPS artifact transfer and post-reboot version checks succeed.
 
-This build only deploys the upstream initial compatibility stack with NO OTA enabled. It does not change OpenWrt DNS, send BLE provisioning data, enable a firmware offer, or publish an OTA command. Those require explicit later steps and successful G3 gateway acknowledgements.
+## Preparation
 
-Never use the BLE address as the Wi-Fi STA MAC. The upstream instructions target BRY88BBA15G / SENSOR3_ESP32 and require a matching release bundle and firmware. Verify the actual hardware model and release checksums before any firmware action.
+1. Verify model BRY88BBA15G / SENSOR3_ESP32 and actual Wi-Fi STA MAC (not BLE address).
+2. Download matching upstream migration bundle and G3 raw ESP32 firmware from the same compatible release; verify its published SHA256SUMS.
+3. On the NAS, assign a **dedicated** LAN IPv4 distinct from the management address. Ensure TCP 443 and 8883 are free on this IP.
+4. Run `network`, manually enter NAS management IPv4, SSH user and port; run `nas-check`.
+5. Run `nas-deploy` to create an initial no-update stack in `/volume1/docker/g3-migration`; then `nas-status` and `nas-logs`.
+6. Use `dns-guide` to configure **device-specific** DNS for the three Daikin hostnames. Do not redirect all LAN clients. Ensure the G3 uses the correct DNS via DHCP.
+7. Short-press the recessed G3 network button and use the Android BLE tool to configure Wi-Fi and virtual gateway 020000000001, pointing to the G3 service IP.
+8. Run `responder` and confirm acknowledgements for snapshot_upload, get_weather, login_ipbox, get_filter_sensor3 and get_error_sensor3.
+9. Only after confirming identity, release consistency, SHA256 and gateway acknowledgements, run `ota-prepare`. Confirm HTTPS logs.
+10. `ota-trigger` requires a second explicit confirmation and sends one non-retained ESP32-only command. Keep power connected and verify HTTPS artifact-start/artifact full transfer, reboot, WebUI firmware version and sensors.
+11. Restore original per-device DNS, run `nas-stop`, and clean up temporary credentials/files. Screen firmware installation is a separate operation from the community WebUI.
 
-## Upstream source
+**Important:** The program currently pins the upstream migration scripts to commit `1c9d2f373f0a9248d2360e03cf2a385c28532571`. Check compatibility with the firmware release before upgrading; a successful SHA256 comparison against a user-provided digest alone does not establish that it matches the pinned script release.
 
-Repository: https://github.com/phicomm-io/iotcloud-community-firmware
-Migration directory: tools/daikin_g3_migrate
-Pinned commit: 1c9d2f373f0a9248d2360e03cf2a385c28532571
+Upstream reference: https://github.com/phicomm-io/iotcloud-community-firmware/tree/main/tools/daikin_g3_migrate
 
-Upstream README requires:
-- a dedicated LAN service host with TCP 443 and 8883 available;
-- the real device Wi-Fi STA MAC;
-- per-device DNS overrides for three Daikin domains;
-- the gateway responder to acknowledge snapshot, weather, gateway login, filter and error requests;
-- explicit separation between initial no-update service and later ESP32 OTA enable/trigger.
-
-See the bundled upstream README and license/source notices.
-
-## Not yet claimed as complete
-
-The Windows remote deployment and service inspection are implemented. Actual OpenWrt DNS automation, Android BLE handoff, live G3 gateway acknowledgement monitoring, OTA artifact validation/offer/trigger, and post-flash verification remain gated implementation and hardware-validation stages. A green Windows CI build is not evidence that a G3 device has migrated successfully.
+Do not publish Wi-Fi passwords, factory credentials, private lab certificates, or SSH keys.
