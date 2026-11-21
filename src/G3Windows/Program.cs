@@ -96,7 +96,8 @@ static int NasDeploy() {
     string remoteCheck=$"set -e; ip -o -4 addr show | grep -F ' {ip}/' >/dev/null || {{ echo SERVICE_IP_NOT_ASSIGNED; exit 20; }}; for p in 443 8883; do if ss -lnt 2>/dev/null | grep -E '[:.]$p[[:space:]]' | grep -F '{ip}:' >/dev/null; then echo PORT_OCCUPIED_$p; exit 21; fi; done; mkdir -p {root}/upstream-g3-migrate";
     if(SshRun(nas,user,port,"sh -lc "+Q(remoteCheck))!=0){Console.Error.WriteLine("NAS 服务 IP 未配置或端口被占用；未部署。请先为 NAS 配置独立服务 IP。");return 4;}
     if(ScpRun(nas,user,port,bundle,root)!=0)return 5;
-    string prep=$"set -e; D=/usr/local/bin/docker; cd {root}; $D run --rm -v /volume1:/volume1 -w {root}/upstream-g3-migrate python:3.12-slim sh -lc 'apt-get update -qq && apt-get install -y -qq openssl >/dev/null && python init.py --address {ip} --device {sta} --output /volume1/docker/g3-migration/lab'; $D compose -f {root}/lab/compose.json up -d";
+    string prep=$"set -e; D=/usr/local/bin/docker; cd {root}; $D run --rm -v {root}:/workspace -w /workspace/upstream-g3-migrate python:3.12-slim sh -lc 'python init.py --address {ip} --device {sta} --output /workspace/lab'; $D compose -f {root}/lab/compose.json up -d";
+
     if(SshRun(nas,user,port,"sh -lc "+Q(prep))!=0){Console.Error.WriteLine("上游配置生成或 Compose 启动失败。保留目录和日志供诊断；未修改 OpenWrt。");return 6;}
     Console.WriteLine("初始 HTTPS/MQTT 兼容服务已部署。当前为 NO-OTA 模式。下一步需验证服务健康，再配置设备专用 DNS 和 BLE 网关关联。");
     return 0;
@@ -107,6 +108,84 @@ static int NasStatus() {
     string root="/volume1/docker/g3-migration";
     string cmd=$"set -e; D=/usr/local/bin/docker; $D compose -f {root}/lab/compose.json ps; $D ps --filter name=iotcloud-g3-migration --format 'table {{.Names}}\\t{{.Status}}'; echo '--- TCP LISTEN ---'; ss -lnt | grep -E '(:443|:8883)' || true";
     return SshRun(nas,user,port,"sh -lc "+Q(cmd));
+}
+
+
+static (string nas,string user,int port)? Nas() {
+    using var cfg=ReadConfig(); if(cfg==null)return null;
+    var c=cfg.RootElement;
+    return (c.GetProperty("nasIp").GetString()!,c.GetProperty("sshUser").GetString()!,c.GetProperty("sshPort").GetInt32());
+}
+static string AskMac() {
+    Console.Write("G3 Wi-Fi STA MAC（不是 BLE MAC）: ");
+    return (Console.ReadLine()??"").Replace(":","").Replace("-","").ToUpperInvariant();
+}
+static int Responder() {
+    var n=Nas();if(n==null)return 2;
+    string mac=AskMac();if(!Regex.IsMatch(mac,"^[0-9A-F]{12}$"))return 2;
+    Console.Write("G3 专用服务 IPv4: ");string ip=Console.ReadLine()?.Trim()??"";
+    if(!ValidIp(ip))return 2;
+    Console.Write("应答时长（秒，60-3600，默认 600）: ");string v=Console.ReadLine()?.Trim()??"";
+    int seconds=string.IsNullOrEmpty(v)?600:int.TryParse(v,out int parsed)?parsed:0;
+    if(seconds<60||seconds>3600)return 2;
+    const string root="/volume1/docker/g3-migration";
+    string script=$"set -e; D=/usr/local/bin/docker; $D run --rm --network host -v {root}/lab:/lab:ro -w /lab python:3.12-slim sh -lc 'pip install -q paho-mqtt msgpack && python local_gateway_responder.py --device {mac} --gateway 020000000001 --host {ip} --empty-gateway --weather-code 1 --seconds {seconds}'";
+    Console.WriteLine("开始单设备网关应答；请保持此窗口运行并检查五项应答日志。");
+    return SshRun(n.Value.nas,n.Value.user,n.Value.port,"sh -lc "+Q(script));
+}
+static int OtaPrepare() {
+    var n=Nas();if(n==null)return 2;
+    string mac=AskMac();if(!Regex.IsMatch(mac,"^[0-9A-F]{12}$"))return 2;
+    Console.Write("本地 G3 raw ESP32 应用完整路径: ");string file=(Console.ReadLine()??"").Trim().Trim('"');
+    if(!File.Exists(file)||!file.EndsWith(".ota.bin.raw",StringComparison.OrdinalIgnoreCase)){Console.Error.WriteLine("仅接受 .ota.bin.raw 文件");return 2;}
+    Console.Write("请输入匹配发布的 SHA256（64位）: ");string expected=(Console.ReadLine()??"").Trim();
+    if(!Regex.IsMatch(expected,"^[a-fA-F0-9]{64}$"))return 2;
+    using var stream=File.OpenRead(file);
+    string actual=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream));
+    if(!actual.Equals(expected,StringComparison.OrdinalIgnoreCase)){Console.Error.WriteLine("SHA256 不匹配，拒绝升级");return 3;}
+    Console.Write("目标 OTA 版本标签 [V99.00.00]: ");string version=Console.ReadLine()?.Trim()??"";
+    if(version.Length==0)version="V99.00.00";
+    if(!Regex.IsMatch(version,"^[A-Za-z0-9_.-]{1,31}$"))return 2;
+    Console.WriteLine("必须确认同一发布的迁移包与固件、G3 型号、五项网关应答和设备供电稳定。");
+    Console.Write("已逐项确认？输入 ENABLE: ");if(Console.ReadLine()!="ENABLE")return 1;
+    const string root="/volume1/docker/g3-migration";
+    string target=root+"/g3-verified.ota.bin.raw";
+    if(ScpRun(n.Value.nas,n.Value.user,n.Value.port,file,target)!=0)return 4;
+    string command=$"set -e; D=/usr/local/bin/docker; $D run --rm -v {root}:/workspace -w /workspace/upstream-g3-migrate python:3.12-slim python enable.py --directory /workspace/lab --device {mac} --firmware /workspace/g3-verified.ota.bin.raw --version {version}; $D compose -f {root}/lab/compose.json up -d --no-deps --force-recreate https";
+    return SshRun(n.Value.nas,n.Value.user,n.Value.port,"sh -lc "+Q(command));
+}
+static int OtaTrigger() {
+    var n=Nas();if(n==null)return 2;
+    string mac=AskMac();if(!Regex.IsMatch(mac,"^[0-9A-F]{12}$"))return 2;
+    Console.Write("G3 专用服务 IPv4: ");string ip=Console.ReadLine()?.Trim()??"";
+    if(!ValidIp(ip))return 2;
+    Console.Write("OTA 目标版本 [V99.00.00]: ");string version=Console.ReadLine()?.Trim()??"";
+    if(version.Length==0)version="V99.00.00";
+    if(!Regex.IsMatch(version,"^[A-Za-z0-9_.-]{1,31}$"))return 2;
+    Console.Write("确认五项网关应答、HTTPS 服务正常且已完成 OTA Prepare。发送一次不可撤销的升级命令请输入 TRIGGER: ");
+    if(Console.ReadLine()!="TRIGGER")return 1;
+    const string root="/volume1/docker/g3-migration";
+    string command=$"set -e; D=/usr/local/bin/docker; $D run --rm --network host -v {root}/lab:/lab:ro -w /lab -v {root}/upstream-g3-migrate:/scripts:ro python:3.12-slim sh -lc 'pip install -q msgpack && PATH=/usr/local/bin:$PATH python /scripts/trigger.py --device {mac} --host {ip} --version {version} --trigger-esp32'";
+    Console.Error.WriteLine("注意：上游 trigger.py 调用 docker exec，当前容器环境缺少 Docker CLI；为避免误报，本命令尚不执行。请使用上游原生命令在 NAS 主机执行。");
+    return 7;
+}
+static int NasLogs() {
+    var n=Nas();if(n==null)return 2;
+    const string root="/volume1/docker/g3-migration";
+    return SshRun(n.Value.nas,n.Value.user,n.Value.port,"/usr/local/bin/docker compose -f "+root+"/lab/compose.json logs --tail=100 https mqtt");
+}
+static int NasStop() {
+    var n=Nas();if(n==null)return 2;
+    Console.Write("只停止 G3 专用容器，不删除数据、不改 DNS。输入 STOP: ");
+    if(Console.ReadLine()!="STOP")return 1;
+    const string root="/volume1/docker/g3-migration";
+    return SshRun(n.Value.nas,n.Value.user,n.Value.port,"/usr/local/bin/docker compose -f "+root+"/lab/compose.json down");
+}
+static int DnsGuide() {
+    Console.WriteLine("必须仅针对 G3 配置以下三个 DNS 域名到独立服务 IP，不能使用全局 dnsmasq address=/domain/IP 覆盖其他设备：");
+    foreach(var d in new[]{"newlifemulti.daikin-china.com.cn","newlifemulti-cdh.daikin-china.com.cn","newlifemulti-cdh-core.daikin-china.com.cn"})Console.WriteLine("  "+d);
+    Console.WriteLine("请在 OpenWrt 为 G3 配置专用 DNS 解析器及按设备 MAC 区分的 DHCP DNS，并验证 G3 实际解析结果。当前版本不自动修改 DNS，以免影响全网。");
+    return 0;
 }
 
 static int Check() {
@@ -137,6 +216,12 @@ static void Help() {
     Console.WriteLine("  G3Windows.exe nas-check  Test SSH and remote Docker/Compose on Synology");
     Console.WriteLine("  G3Windows.exe nas-deploy  Deploy upstream NO-OTA HTTPS/MQTT stack to Synology");
     Console.WriteLine("  G3Windows.exe nas-status  Check deployed G3 migration services");
+    Console.WriteLine("  G3Windows.exe nas-logs    Inspect G3 HTTPS/MQTT logs");
+    Console.WriteLine("  G3Windows.exe responder   Run timed G3 gateway acknowledgements");
+    Console.WriteLine("  G3Windows.exe ota-prepare Verify raw firmware SHA256 and enable OTA offer");
+    Console.WriteLine("  G3Windows.exe ota-trigger Guided OTA safety confirmation (not automated)");
+    Console.WriteLine("  G3Windows.exe dns-guide   Show per-device DNS requirements");
+    Console.WriteLine("  G3Windows.exe nas-stop    Stop only the G3 Compose stack");
     Console.WriteLine("  G3Windows.exe help        Show this help");
     Console.WriteLine("This tool DOES NOT trigger firmware updates.");
 }
@@ -145,6 +230,12 @@ switch (args[0].ToLowerInvariant()) {
     case "check": return Check();
     case "network": return Network(args.Skip(1).ToArray());
     case "nas-deploy": return NasDeploy();
+    case "nas-logs": return NasLogs();
+    case "nas-stop": return NasStop();
+    case "responder": return Responder();
+    case "ota-prepare": return OtaPrepare();
+    case "ota-trigger": return OtaTrigger();
+    case "dns-guide": return DnsGuide();
     case "nas-status": return NasStatus();
     case "nas-check": {
         var configFile = Path.Combine(AppContext.BaseDirectory, "g3-network.json");
