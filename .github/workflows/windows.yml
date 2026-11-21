@@ -18,7 +18,6 @@ jobs:
           New-Item -ItemType Directory -Path upstream-g3-migrate -Force | Out-Null
           Copy-Item upstream/tools/daikin_g3_migrate/init.py,upstream/tools/daikin_g3_migrate/enable.py,upstream/tools/daikin_g3_migrate/local_ota_server.py,upstream/tools/daikin_g3_migrate/local_gateway_responder.py,upstream/tools/daikin_g3_migrate/trigger.py upstream-g3-migrate/
           Copy-Item upstream/LICENSE upstream-g3-migrate/UPSTREAM-LICENSE -ErrorAction SilentlyContinue
-          Copy-Item tools/local_gateway_responder.py upstream-g3-migrate/local_gateway_responder.py
           Set-Content upstream-g3-migrate/UPSTREAM-COMMIT.txt '1c9d2f373f0a9248d2360e03cf2a385c28532571'
       - name: Validate PowerShell
         shell: pwsh
@@ -59,6 +58,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish stable Windows download on GitHub Releases
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-windows
@@ -66,6 +66,6 @@ jobs:
           body: |
             Automatically updated Windows x64 self-contained build from the latest successful main-branch workflow.
             Download g3-windows-final-win-x64.zip below. Extract and run G3Windows.exe.
-            Includes pinned upstream migration scripts and NAS remote deployment of the initial NO-OTA stack. DNS, BLE provisioning and OTA remain separately gated.
+            Includes pinned upstream migration scripts and Windows-to-Linux SSH deployment of the temporary HTTPS + Mosquitto stack. DNS, BLE provisioning and OTA remain separately gated.
           files: g3-windows-final-win-x64.zip
           make_latest: true
