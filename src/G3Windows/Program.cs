@@ -54,9 +54,9 @@ static int Network(string[] options) {
 }
 
 
-static string BaseDir => AppContext.BaseDirectory;
+static string BaseDir() => AppContext.BaseDirectory;
 static JsonDocument? ReadConfig() {
-    var file = Path.Combine(BaseDir, "g3-network.json");
+    var file = Path.Combine(BaseDir(), "g3-network.json");
     if (!File.Exists(file)) { Console.Error.WriteLine("请先运行 network 配置网络和 NAS。"); return null; }
     return JsonDocument.Parse(File.ReadAllText(file));
 }
