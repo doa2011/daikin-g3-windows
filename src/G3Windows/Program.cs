@@ -222,7 +222,8 @@ static void Help() {
     Console.WriteLine("  G3Windows.exe network [--router-ip IP] [--nas-ip IP]  Detect router; manually enter NAS/SSH");
     Console.WriteLine("  G3Windows.exe nas-check  Test SSH and remote Docker/Compose on Synology");
     Console.WriteLine("  G3Windows.exe nas-deploy  Deploy upstream NO-OTA HTTPS/MQTT stack to Synology");
-    Console.WriteLine("  G3Windows.exe nas-status  Check deployed G3 migration services");\n    Console.WriteLine("  MQTT endpoint: manually enter service IP; TLS port 8883 is enforced by upstream G3 protocol.");
+    Console.WriteLine("  G3Windows.exe nas-status  Check deployed G3 migration services");
+    Console.WriteLine("  MQTT endpoint: manually enter service IP; TLS port 8883 is enforced by upstream G3 protocol.");
     Console.WriteLine("  G3Windows.exe nas-logs    Inspect G3 HTTPS/MQTT logs");
     Console.WriteLine("  G3Windows.exe responder   Run timed G3 gateway acknowledgements");
     Console.WriteLine("  G3Windows.exe ota-prepare Verify raw firmware SHA256 and enable OTA offer");
