@@ -28,6 +28,7 @@ static IPAddress? DetectLanAddress(IPAddress? gateway) {
         .Select(a => a.Address).FirstOrDefault();
 }
 static bool ValidIp(string value) => IPAddress.TryParse(value, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork;
+static bool ValidHost(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 253 && Uri.CheckHostName(value) != UriHostNameType.Unknown;
 static int Network(string[] options) {
     var gateway = DetectDefaultGateway();
     var local = DetectLanAddress(gateway);
@@ -42,9 +43,13 @@ static int Network(string[] options) {
     if (!ValidIp(router) || !ValidIp(nas)) { Console.Error.WriteLine("Invalid IPv4. Use dotted decimal addresses."); return 2; }
     Console.Write("SSH 用户名 [root]: "); string sshUser = Console.ReadLine()?.Trim() ?? ""; if (string.IsNullOrWhiteSpace(sshUser)) sshUser = "root";
     Console.Write("SSH 端口 [22]: "); string portText = Console.ReadLine()?.Trim() ?? ""; int sshPort = string.IsNullOrWhiteSpace(portText) ? 22 : int.TryParse(portText, out var parsedPort) ? parsedPort : 0; if (sshPort < 1 || sshPort > 65535) { Console.Error.WriteLine("SSH 端口无效"); return 2; }
-    Console.Write("G3 专用 HTTPS 服务 IPv4（NAS 独立地址）: "); string serviceIp = Console.ReadLine()?.Trim() ?? ""; if (!string.IsNullOrWhiteSpace(serviceIp) && !ValidIp(serviceIp)) { Console.Error.WriteLine("服务 IP 无效"); return 2; }
-    Console.Write("MQTT 服务 IPv4（默认与 HTTPS 相同）: "); string mqttIp = Console.ReadLine()?.Trim() ?? ""; if (string.IsNullOrWhiteSpace(mqttIp)) mqttIp = serviceIp; if (!ValidIp(mqttIp) || mqttIp != serviceIp) { Console.Error.WriteLine("当前上游 G3 证书/服务生成流程要求 MQTT 与 HTTPS 使用同一 NAS 服务 IP"); return 2; }
-    Console.Write("MQTT TLS 端口 [8883]: "); string mqttPortText = Console.ReadLine()?.Trim() ?? ""; int mqttPort = string.IsNullOrWhiteSpace(mqttPortText) ? 8883 : int.TryParse(mqttPortText,out var mp) ? mp : 0; if (mqttPort != 8883) { Console.Error.WriteLine("当前原厂 G3 上游协议固定使用 TLS 8883；请填写 8883，不能任意更改"); return 2; }
+    Console.Write("G3 HTTPS 服务 IPv4（默认使用 NAS 管理 IP）: "); string serviceIp = Console.ReadLine()?.Trim() ?? ""; if (string.IsNullOrWhiteSpace(serviceIp)) serviceIp = nas; if (!ValidIp(serviceIp)) { Console.Error.WriteLine("HTTPS 服务 IP 无效"); return 2; }
+    Console.Write("现有 MQTT 服务器地址（IP 或域名）: "); string mqttHost = Console.ReadLine()?.Trim() ?? ""; if (!ValidHost(mqttHost)) { Console.Error.WriteLine("MQTT 主机地址无效"); return 2; }
+    Console.Write("现有 MQTT 端口 [8883]: "); string mqttPortText = Console.ReadLine()?.Trim() ?? ""; int mqttPort = string.IsNullOrWhiteSpace(mqttPortText) ? 8883 : int.TryParse(mqttPortText,out var mp) ? mp : 0; if (mqttPort < 1 || mqttPort > 65535) { Console.Error.WriteLine("MQTT 端口无效"); return 2; }
+    Console.Write("MQTT TLS [Y/n]: "); string tlsText = Console.ReadLine()?.Trim() ?? ""; bool mqttTls = !tlsText.Equals("n",StringComparison.OrdinalIgnoreCase);
+    Console.Write("MQTT 用户名（可留空）: "); string mqttUser = Console.ReadLine() ?? "";
+    Console.Write("MQTT CA PEM 文件路径（可留空使用系统信任链）: "); string mqttCa = (Console.ReadLine() ?? "").Trim();
+    if (!string.IsNullOrWhiteSpace(mqttCa) && !File.Exists(mqttCa)) { Console.Error.WriteLine("找不到 MQTT CA 文件"); return 2; }
     var data = new { routerIp = router, nasIp = nas, sshUser, sshPort, serviceIp, mqttIp, mqttPort, windowsLanIp = local?.ToString(), detectedGateway = gateway?.ToString(), note = "NAS management IP is manual. G3 service IP must be separately assigned; do not reuse an occupied NAS address." };
     var path = Path.Combine(AppContext.BaseDirectory, "g3-network.json");
     File.WriteAllText(path, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
@@ -86,10 +91,13 @@ static int NasDeploy() {
     int port=c.GetProperty("sshPort").GetInt32();
     Console.Write("G3 实际 Wi-Fi STA MAC（12位十六进制，不是 BLE MAC）: "); string sta=(Console.ReadLine()??"").Replace(":","").Replace("-","").ToUpperInvariant();
     if(!Regex.IsMatch(sta,"^[0-9A-F]{12}$")){Console.Error.WriteLine("STA MAC 格式错误");return 2;}
-    Console.Write("G3 HTTPS 服务 IPv4（回车使用 network 中的配置）: "); string ip=Console.ReadLine()?.Trim()??""; if(string.IsNullOrWhiteSpace(ip)) ip=c.TryGetProperty("serviceIp",out var serviceValue)?serviceValue.GetString()??"":"";
-    Console.Write("MQTT 服务 IPv4（回车使用配置，必须与 HTTPS 相同）: "); string mqttIp=Console.ReadLine()?.Trim()??""; if(string.IsNullOrWhiteSpace(mqttIp)) mqttIp=c.TryGetProperty("mqttIp",out var mqttValue)?mqttValue.GetString()??ip:ip;
-    Console.Write("MQTT TLS 端口 [8883]: "); string mqttPortText=Console.ReadLine()?.Trim()??""; int mqttPort=string.IsNullOrWhiteSpace(mqttPortText)?(c.TryGetProperty("mqttPort",out var portValue)?portValue.GetInt32():8883):int.TryParse(mqttPortText,out var parsedMqttPort)?parsedMqttPort:0;
-    if(!ValidIp(ip)||ip==nas||mqttIp!=ip||mqttPort!=8883){Console.Error.WriteLine("服务 IP 必须是 NAS 已配置的独立 IPv4；MQTT IP 必须与 HTTPS 相同，TLS 端口按原厂 G3 协议固定 8883");return 2;}
+    string ip=c.GetProperty("serviceIp").GetString()??nas;
+    string mqttHost=c.GetProperty("mqttHost").GetString()??"";
+    int mqttPort=c.GetProperty("mqttPort").GetInt32();
+    bool mqttTls=c.GetProperty("mqttTls").GetBoolean();
+    string mqttCa=c.GetProperty("mqttCa").GetString()??"";
+    Console.WriteLine("HTTPS 服务部署在 NAS 地址 "+ip+":443；MQTT 使用外部服务器 "+mqttHost+":"+mqttPort+"，NAS 不部署 MQTT Broker。");
+    if(mqttTls && !string.IsNullOrWhiteSpace(mqttCa) && !File.Exists(mqttCa)){Console.Error.WriteLine("MQTT CA 文件不存在");return 2;}
     var bundle=Path.Combine(BaseDir(),"upstream-g3-migrate");
     foreach(var name in new[]{"init.py","enable.py","local_ota_server.py","local_gateway_responder.py","trigger.py"})
         if(!File.Exists(Path.Combine(bundle,name))){Console.Error.WriteLine("缺少随程序发布的上游文件: "+name);return 3;}
@@ -103,7 +111,7 @@ static int NasDeploy() {
     string prep=$"set -e; D=/usr/local/bin/docker; cd {root}; $D run --rm -v {root}:/workspace -w /workspace/upstream-g3-migrate python:3.12-slim sh -lc 'apt-get update -qq && apt-get install -y -qq openssl >/dev/null && python init.py --address {ip} --device {sta} --output /workspace/lab'; sed -i 's@/workspace/lab@{root}/lab@g' {root}/lab/compose.json; $D compose -f {root}/lab/compose.json up -d";
 
     if(SshRun(nas,user,port,"sh -lc "+Q(prep))!=0){Console.Error.WriteLine("上游配置生成或 Compose 启动失败。保留目录和日志供诊断；未修改 OpenWrt。");return 6;}
-    Console.WriteLine("初始 HTTPS/MQTT 兼容服务已部署。当前为 NO-OTA 模式。下一步需验证服务健康，再配置设备专用 DNS 和 BLE 网关关联。");
+    Console.WriteLine("初始 HTTPS 服务已部署（NO-OTA）。未在 NAS 部署 MQTT Broker；设备 MQTT 由你填写的外部服务器提供。仍需验证外部 Broker 的 G3 TLS/身份认证兼容性。");
     return 0;
 }
 static int NasStatus() {
@@ -221,9 +229,9 @@ static void Help() {
     Console.WriteLine("  G3Windows.exe guide       Print safe setup steps");
     Console.WriteLine("  G3Windows.exe network [--router-ip IP] [--nas-ip IP]  Detect router; manually enter NAS/SSH");
     Console.WriteLine("  G3Windows.exe nas-check  Test SSH and remote Docker/Compose on Synology");
-    Console.WriteLine("  G3Windows.exe nas-deploy  Deploy upstream NO-OTA HTTPS/MQTT stack to Synology");
+    Console.WriteLine("  G3Windows.exe nas-deploy  Deploy HTTPS-only G3 service to Synology; use external MQTT");
     Console.WriteLine("  G3Windows.exe nas-status  Check deployed G3 migration services");
-    Console.WriteLine("  MQTT endpoint: manually enter service IP; TLS port 8883 is enforced by upstream G3 protocol.");
+    Console.WriteLine("  MQTT endpoint is user-configured (host/port/TLS/CA); no MQTT Broker is installed on NAS.");
     Console.WriteLine("  G3Windows.exe nas-logs    Inspect G3 HTTPS/MQTT logs");
     Console.WriteLine("  G3Windows.exe responder   Run timed G3 gateway acknowledgements");
     Console.WriteLine("  G3Windows.exe ota-prepare Verify raw firmware SHA256 and enable OTA offer");
@@ -231,7 +239,7 @@ static void Help() {
     Console.WriteLine("  G3Windows.exe dns-guide   Show per-device DNS requirements");
     Console.WriteLine("  G3Windows.exe nas-stop    Stop only the G3 Compose stack");
     Console.WriteLine("  G3Windows.exe help        Show this help");
-    Console.WriteLine("MQTT endpoint is manually configurable by IP; stock G3 TLS port is fixed at 8883.");
+    Console.WriteLine("External MQTT parameters are user-configured; NAS deployment is HTTPS-only.");
 }
 if (args.Length == 0) { Help(); return 0; }
 switch (args[0].ToLowerInvariant()) {
