@@ -129,7 +129,7 @@ static int Responder() {
     int seconds=string.IsNullOrEmpty(v)?600:int.TryParse(v,out int parsed)?parsed:0;
     if(seconds<60||seconds>3600)return 2;
     const string root="/volume1/docker/g3-migration";
-    string script=$"set -e; D=/usr/local/bin/docker; $D run --rm --network host -v {root}/lab:/lab:ro -w /lab python:3.12-slim sh -lc 'pip install -q paho-mqtt msgpack && python local_gateway_responder.py --device {mac} --gateway 020000000001 --host {ip} --empty-gateway --weather-code 1 --seconds {seconds}'";
+    string script=$"set -e; export PATH=/usr/local/bin:$PATH; command -v python3 >/dev/null || {{ echo NAS_PYTHON3_REQUIRED; exit 7; }}; python3 {root}/lab/local_gateway_responder.py --device {mac} --gateway 020000000001 --host {ip} --empty-gateway --weather-code 1 --seconds {seconds}";
     Console.WriteLine("开始单设备网关应答；请保持此窗口运行并检查五项应答日志。");
     return SshRun(n.Value.nas,n.Value.user,n.Value.port,"sh -lc "+Q(script));
 }
@@ -165,9 +165,12 @@ static int OtaTrigger() {
     Console.Write("确认五项网关应答、HTTPS 服务正常且已完成 OTA Prepare。发送一次不可撤销的升级命令请输入 TRIGGER: ");
     if(Console.ReadLine()!="TRIGGER")return 1;
     const string root="/volume1/docker/g3-migration";
-    string command=$"set -e; D=/usr/local/bin/docker; $D run --rm --network host -v {root}/lab:/lab:ro -w /lab -v {root}/upstream-g3-migrate:/scripts:ro python:3.12-slim sh -lc 'pip install -q msgpack && PATH=/usr/local/bin:$PATH python /scripts/trigger.py --device {mac} --host {ip} --version {version} --trigger-esp32'";
-    Console.Error.WriteLine("注意：上游 trigger.py 调用 docker exec，当前容器环境缺少 Docker CLI；为避免误报，本命令尚不执行。请使用上游原生命令在 NAS 主机执行。");
-    return 7;
+    string token="iotcloud-"+Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
+    var body=JsonSerializer.Serialize(new {client_token=token,data=new {upgrade_method=1,upgrade_info=new[]{new{device_type="SENSOR3_ESP32",to_version=version}}}});
+    string topic="SENSOR/"+mac+"/mqtt/service/ota";
+    string cmd="/usr/local/bin/docker exec iotcloud-g3-migration mosquitto_pub -h "+Q(ip)+" -p 8883 --cafile /lab/ca.pem -q 1 -t "+Q(topic)+" -m "+Q(body);
+    Console.WriteLine("仅发送一次 ESP32 OTA 命令；请检查 HTTPS artifact-start / artifact 日志并确认设备重启。");
+    return SshRun(n.Value.nas,n.Value.user,n.Value.port,cmd);
 }
 static int NasLogs() {
     var n=Nas();if(n==null)return 2;
