@@ -87,7 +87,7 @@ static int NasDeploy() {
     Console.Write("G3 专用服务 IP（必须已配置在 NAS 网卡上，不能与 NAS 管理 IP 相同）: "); string ip=Console.ReadLine()?.Trim()??"";
     if(!ValidIp(ip)||ip==nas){Console.Error.WriteLine("服务 IP 无效，必须是 NAS 已配置的独立 IPv4");return 2;}
     var bundle=Path.Combine(BaseDir(),"upstream-g3-migrate");
-    foreach(var name in new[]{"init.py","local_ota_server.py","local_gateway_responder.py","trigger.py"})
+    foreach(var name in new[]{"init.py","enable.py","local_ota_server.py","local_gateway_responder.py","trigger.py"})
         if(!File.Exists(Path.Combine(bundle,name))){Console.Error.WriteLine("缺少随程序发布的上游文件: "+name);return 3;}
     Console.WriteLine("部署前检查 NAS 服务 IP 和端口。此步骤只部署无 OTA 的初始兼容服务，不配置 DNS、不发送配网和升级命令。");
     Console.Write("确认继续部署到 "+nas+"，服务 IP "+ip+"？输入 YES: ");
@@ -96,7 +96,7 @@ static int NasDeploy() {
     string remoteCheck=$"set -e; ip -o -4 addr show | grep -F ' {ip}/' >/dev/null || {{ echo SERVICE_IP_NOT_ASSIGNED; exit 20; }}; for p in 443 8883; do if ss -lnt 2>/dev/null | grep -E '[:.]$p[[:space:]]' | grep -F '{ip}:' >/dev/null; then echo PORT_OCCUPIED_$p; exit 21; fi; done; mkdir -p {root}/upstream-g3-migrate";
     if(SshRun(nas,user,port,"sh -lc "+Q(remoteCheck))!=0){Console.Error.WriteLine("NAS 服务 IP 未配置或端口被占用；未部署。请先为 NAS 配置独立服务 IP。");return 4;}
     if(ScpRun(nas,user,port,bundle,root)!=0)return 5;
-    string prep=$"set -e; D=/usr/local/bin/docker; cd {root}; $D run --rm -v {root}:/workspace -w /workspace/upstream-g3-migrate python:3.12-slim sh -lc 'python init.py --address {ip} --device {sta} --output /workspace/lab'; $D compose -f {root}/lab/compose.json up -d";
+    string prep=$"set -e; D=/usr/local/bin/docker; cd {root}; $D run --rm -v {root}:/workspace -w /workspace/upstream-g3-migrate python:3.12-slim sh -lc 'apt-get update -qq && apt-get install -y -qq openssl >/dev/null && python init.py --address {ip} --device {sta} --output /workspace/lab'; sed -i 's@/workspace/lab@{root}/lab@g' {root}/lab/compose.json; $D compose -f {root}/lab/compose.json up -d";
 
     if(SshRun(nas,user,port,"sh -lc "+Q(prep))!=0){Console.Error.WriteLine("上游配置生成或 Compose 启动失败。保留目录和日志供诊断；未修改 OpenWrt。");return 6;}
     Console.WriteLine("初始 HTTPS/MQTT 兼容服务已部署。当前为 NO-OTA 模式。下一步需验证服务健康，再配置设备专用 DNS 和 BLE 网关关联。");
